@@ -7,7 +7,8 @@ import { addAssetsToHole, defaultFsStore, getAssetContentType, resolveAsset } fr
 import { maybeUpgradeBaseUrlFromFrontmatter, normalizeBaseUrl } from "../../core/base-url.js";
 import { extractAssetRefsFromMarkdown } from "../../core/assets.js";
 import { createHoleState, holeStateToHole, reduceHoleEvent } from "../../core/reducer.js";
-import { lineageTitlesFromMap } from "../../core/model.js";
+import { configureLenses, lineageTitlesFromMap } from "../../core/model.js";
+import { getLenses } from "../lenses.js";
 import { buildJsonError, parseRequestBody, closeServerGracefully, CLOSE_TIMEOUT_MS } from "./http.js";
 import { writeSseEvent } from "./sse.js";
 
@@ -411,6 +412,11 @@ export class RabbitHoleSession {
   }
 
   buildHydration() {
+    // Config-driven lenses (Warren patch 1): resolve them once here so the served
+    // page and the server's own node/prompt path agree. getLenses() is mtime-cached
+    // and fails soft to the built-in four.
+    const lenses = getLenses();
+    configureLenses(lenses);
     return {
       session_id: this.id,
       hole_id: this.holeId,
@@ -422,6 +428,9 @@ export class RabbitHoleSession {
       last_event_id: this.lastOutboundEventId,
       agent_attached: this.agentAttached,
       view_state: this.viewState,
+      // The browser rebuilds its LENSES from this list, falling back to the
+      // built-in four when absent/empty (see core/model.js configureLenses).
+      lenses,
       nodes: this.serializeNodes(),
     };
   }
@@ -647,6 +656,11 @@ export class RabbitHoleSession {
     const parentId = String(payload.parent_id || "");
     const parent = this.nodes.get(parentId);
     if (!parent) throw buildJsonError(`Parent node ${parentId} not found`, 404);
+
+    // A config lens id (e.g. "steelman") must be recognized by normalizeLens and
+    // name the node via lensLabel — install the active lens set before the reducer
+    // creates the pending node.
+    configureLenses(getLenses());
 
     const requestId = String(payload.request_id || randomUUID());
     const nodeId = String(payload.node_id || randomUUID());

@@ -49,15 +49,12 @@ export const CANVAS_SHELL = `
 
 <div id="ask">
   <div class="ask-input">
-    <textarea id="ask-text" rows="1" placeholder="Ask about this… ↵ = Explain"></textarea>
+    <textarea id="ask-text" rows="1" placeholder="Ask about this…"></textarea>
     <button class="send-btn" id="ask-go" title="Ask (↵)"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 12.8V3.6M8 3.6 3.9 7.7M8 3.6l4.1 4.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
   </div>
-  <div class="ask-lenses" id="ask-lenses">
-    <button class="lens" data-lens="explain">Explain <kbd>1</kbd></button>
-    <button class="lens" data-lens="eli5">ELI5 <kbd>2</kbd></button>
-    <button class="lens" data-lens="example">Example <kbd>3</kbd></button>
-    <button class="lens" data-lens="deeper">Go Deeper <kbd>4</kbd></button>
-  </div>
+  <!-- Lens buttons are rendered client-side from the config-driven LENSES
+       (see ui/ask-followups.js renderLensButtons). -->
+  <div class="ask-lenses" id="ask-lenses"></div>
 </div>
 
 <div id="palette"><div id="palette-panel">

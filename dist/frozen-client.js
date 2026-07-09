@@ -1648,27 +1648,53 @@ var RabbitholeFrozenClient = (() => {
   // src/core/model.js
   var BRANCH_SELECTION = "selection";
   var BRANCH_FOLLOWUP = "followup";
-  var LENSES = Object.freeze({
-    explain: Object.freeze({
+  var BUILTIN_LENSES = [
+    {
+      id: "explain",
       label: "Explain",
       q: "Explain this clearly and precisely: what it means here, why it matters, and the key intuition an expert would want me to take away."
-    }),
-    eli5: Object.freeze({
+    },
+    {
+      id: "eli5",
       label: "ELI5",
       q: "Explain this like I'm five: start with a concrete everyday analogy, then translate the analogy back to the real thing, one level more precise."
-    }),
-    example: Object.freeze({
+    },
+    {
+      id: "example",
       label: "Example",
       q: "Show this in action with one concrete worked example: realistic, minimal, step by step. Use runnable code if it's code-shaped, real numbers if it's quantitative."
-    }),
-    deeper: Object.freeze({
+    },
+    {
+      id: "deeper",
       label: "Go Deeper",
       q: "Go one level deeper than this document does: the underlying mechanism, the important edge cases, and what experts know about this that introductory treatments gloss over."
-    })
-  });
-  var LENS_LABELS = Object.freeze(
-    Object.fromEntries(Object.entries(LENSES).map(([key, value]) => [key, value.label]))
-  );
+    }
+  ];
+  var LENSES = {};
+  var LENS_ORDER = [];
+  var LENS_ID_RE = /^[A-Za-z0-9_-]+$/;
+  function installLenses(list2) {
+    for (const key of Object.keys(LENSES)) delete LENSES[key];
+    LENS_ORDER.length = 0;
+    const seen = /* @__PURE__ */ new Set();
+    for (const lens of list2) {
+      if (!lens || typeof lens.id !== "string" || seen.has(lens.id)) continue;
+      seen.add(lens.id);
+      LENSES[lens.id] = { label: lens.label || lens.id, q: lens.q || "" };
+      LENS_ORDER.push(lens.id);
+    }
+  }
+  installLenses(BUILTIN_LENSES);
+  function configureLenses(list2) {
+    if (!Array.isArray(list2) || list2.length === 0) {
+      installLenses(BUILTIN_LENSES);
+      return;
+    }
+    const valid = list2.filter(
+      (lens) => lens && typeof lens.id === "string" && LENS_ID_RE.test(lens.id) && typeof lens.label === "string" && lens.label.length > 0 && typeof lens.q === "string" && lens.q.length > 0
+    );
+    installLenses(valid.length ? valid : BUILTIN_LENSES);
+  }
   function truncate(value, length) {
     const s = String(value != null ? value : "");
     return s.length > length ? `${s.slice(0, length).trimEnd()}\u2026` : s;
@@ -1849,6 +1875,7 @@ var RabbitholeFrozenClient = (() => {
   }
   function initCore(inputHydration) {
     hydration = inputHydration || {};
+    configureLenses(hydration.lenses);
     rootId = hydration.root_id;
     frozen = !!hydration.frozen;
     nodes = {};
@@ -3717,6 +3744,7 @@ var RabbitholeFrozenClient = (() => {
     askGo.addEventListener("click", function(e) {
       submitAsk(null, motionSourceFromEvent(e));
     });
+    renderLensButtons();
     document.getElementById("ask-lenses").addEventListener("click", function(e) {
       var b = e.target.closest ? e.target.closest(".lens") : null;
       if (b) submitAsk(b.getAttribute("data-lens"), motionSourceFromEvent(e));
@@ -3749,6 +3777,17 @@ var RabbitholeFrozenClient = (() => {
   function inAsk(e) {
     return e.target && e.target.closest && e.target.closest("#ask");
   }
+  function renderLensButtons() {
+    var box = document.getElementById("ask-lenses");
+    if (!box) return;
+    var html2 = "";
+    for (var i2 = 0; i2 < LENS_ORDER.length; i2++) {
+      var id = LENS_ORDER[i2];
+      var kbd = i2 < 9 ? " <kbd>" + (i2 + 1) + "</kbd>" : "";
+      html2 += '<button class="lens" data-lens="' + esc(id) + '">' + esc(lensLabel2(id)) + kbd + "</button>";
+    }
+    box.innerHTML = html2;
+  }
   function maybeShowAsk() {
     var sel = window.getSelection();
     if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
@@ -3776,7 +3815,7 @@ var RabbitholeFrozenClient = (() => {
     };
     paintAskHighlight(pendingAsk.range);
     askText.value = "";
-    askText.placeholder = "Ask about this\u2026 \u21B5 = Explain";
+    askText.placeholder = "Ask about this\u2026";
     var rect = range.getBoundingClientRect();
     ask.style.left = Math.min(window.innerWidth - 392, Math.max(10, rect.left)) + "px";
     ask.style.top = Math.min(window.innerHeight - 200, rect.bottom + 8) + "px";
@@ -3803,16 +3842,19 @@ var RabbitholeFrozenClient = (() => {
     } catch (e) {
     }
   }
-  var LENS_KEYS = { "1": "explain", "2": "eli5", "3": "example", "4": "deeper" };
+  function lensForDigit(key) {
+    var i2 = /^[1-9]$/.test(key) ? parseInt(key, 10) : 0;
+    return i2 && i2 <= LENS_ORDER.length ? LENS_ORDER[i2 - 1] : null;
+  }
   function onAskTextKeydown(e) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submitAsk(null, "keyboard");
     } else if (e.key === "Escape") {
       hideAsk();
-    } else if (askText.value === "" && !e.metaKey && !e.ctrlKey && !e.altKey && LENS_KEYS[e.key]) {
+    } else if (askText.value === "" && !e.metaKey && !e.ctrlKey && !e.altKey && lensForDigit(e.key)) {
       e.preventDefault();
-      submitAsk(LENS_KEYS[e.key], "keyboard");
+      submitAsk(lensForDigit(e.key), "keyboard");
     }
   }
   function submitAsk(lensKey, source2) {
@@ -4624,15 +4666,12 @@ var RabbitholeFrozenClient = (() => {
 
 <div id="ask">
   <div class="ask-input">
-    <textarea id="ask-text" rows="1" placeholder="Ask about this\u2026 \u21B5 = Explain"></textarea>
+    <textarea id="ask-text" rows="1" placeholder="Ask about this\u2026"></textarea>
     <button class="send-btn" id="ask-go" title="Ask (\u21B5)"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 12.8V3.6M8 3.6 3.9 7.7M8 3.6l4.1 4.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
   </div>
-  <div class="ask-lenses" id="ask-lenses">
-    <button class="lens" data-lens="explain">Explain <kbd>1</kbd></button>
-    <button class="lens" data-lens="eli5">ELI5 <kbd>2</kbd></button>
-    <button class="lens" data-lens="example">Example <kbd>3</kbd></button>
-    <button class="lens" data-lens="deeper">Go Deeper <kbd>4</kbd></button>
-  </div>
+  <!-- Lens buttons are rendered client-side from the config-driven LENSES
+       (see ui/ask-followups.js renderLensButtons). -->
+  <div class="ask-lenses" id="ask-lenses"></div>
 </div>
 
 <div id="palette"><div id="palette-panel">

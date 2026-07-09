@@ -3,28 +3,82 @@ import { inheritedNodeBaseUrl } from "./base-url.js";
 export const BRANCH_SELECTION = "selection";
 export const BRANCH_FOLLOWUP = "followup";
 
-export const LENSES = Object.freeze({
-  explain: Object.freeze({
+// The built-in four lenses — the fail-soft default whenever no config lens pack
+// is installed. Kept as an ordered list so both the button order and the
+// number-key shortcuts derive from it.
+export const BUILTIN_LENSES = [
+  {
+    id: "explain",
     label: "Explain",
     q: "Explain this clearly and precisely: what it means here, why it matters, and the key intuition an expert would want me to take away.",
-  }),
-  eli5: Object.freeze({
+  },
+  {
+    id: "eli5",
     label: "ELI5",
     q: "Explain this like I'm five: start with a concrete everyday analogy, then translate the analogy back to the real thing, one level more precise.",
-  }),
-  example: Object.freeze({
+  },
+  {
+    id: "example",
     label: "Example",
     q: "Show this in action with one concrete worked example: realistic, minimal, step by step. Use runnable code if it's code-shaped, real numbers if it's quantitative.",
-  }),
-  deeper: Object.freeze({
+  },
+  {
+    id: "deeper",
     label: "Go Deeper",
     q: "Go one level deeper than this document does: the underlying mechanism, the important edge cases, and what experts know about this that introductory treatments gloss over.",
-  }),
-});
+  },
+];
 
-export const LENS_LABELS = Object.freeze(
-  Object.fromEntries(Object.entries(LENSES).map(([key, value]) => [key, value.label]))
-);
+// Config-driven lenses (Warren patch 1, re-ported to the centralized model seam).
+// LENSES / LENS_ORDER are the single source of truth consumed by the reducer, the
+// answering prompt, and every UI surface. They are mutated IN PLACE by
+// configureLenses so imported bindings stay live: the node server installs the
+// lenses loaded from ~/.rabbithole/config.json before it reduces a branch request
+// (src/node/lenses.js), and the browser installs hydration.lenses at initCore.
+// Absent that call, the built-in four stand.
+export const LENSES = {};
+export const LENS_ORDER = [];
+
+const LENS_ID_RE = /^[A-Za-z0-9_-]+$/;
+
+function installLenses(list) {
+  for (const key of Object.keys(LENSES)) delete LENSES[key];
+  LENS_ORDER.length = 0;
+  const seen = new Set();
+  for (const lens of list) {
+    if (!lens || typeof lens.id !== "string" || seen.has(lens.id)) continue;
+    seen.add(lens.id);
+    LENSES[lens.id] = { label: lens.label || lens.id, q: lens.q || "" };
+    LENS_ORDER.push(lens.id);
+  }
+}
+
+installLenses(BUILTIN_LENSES);
+
+/**
+ * Install a lens set (config- or hydration-driven). A missing, empty, or fully
+ * invalid list keeps the built-in four — this fail-soft default is what lets the
+ * whole feature be dead code without a config lens pack. Ids must be a safe slug
+ * (they become origin.lens and DOM data attributes); the first definition of an
+ * id wins.
+ */
+export function configureLenses(list) {
+  if (!Array.isArray(list) || list.length === 0) {
+    installLenses(BUILTIN_LENSES);
+    return;
+  }
+  const valid = list.filter(
+    (lens) =>
+      lens &&
+      typeof lens.id === "string" &&
+      LENS_ID_RE.test(lens.id) &&
+      typeof lens.label === "string" &&
+      lens.label.length > 0 &&
+      typeof lens.q === "string" &&
+      lens.q.length > 0
+  );
+  installLenses(valid.length ? valid : BUILTIN_LENSES);
+}
 
 export function truncate(value, length) {
   const s = String(value ?? "");

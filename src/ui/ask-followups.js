@@ -15,9 +15,11 @@ import {
   connLost,
   currentNodeId,
   easeOutMotion,
+  esc,
   flashHint,
   frozen,
   agentAttached,
+  LENS_ORDER,
   lensLabel,
   mode,
   motionSourceFromEvent,
@@ -79,6 +81,10 @@ export function initAskFollowups(){
   });
   document.addEventListener("mouseup", function(e){ if (inAsk(e)) return; setTimeout(maybeShowAsk, 0); });
   askGo.addEventListener("click", function(e){ submitAsk(null, motionSourceFromEvent(e)); });
+  // The lens buttons are config-driven (Warren patch 1): shell.js ships an empty
+  // #ask-lenses; fill it from the shared LENS_ORDER (built-in four unless a config
+  // lens pack overrode them in initCore). Number-key hints show for the first nine.
+  renderLensButtons();
   document.getElementById("ask-lenses").addEventListener("click", function(e){
     var b = e.target.closest ? e.target.closest(".lens") : null;
     if (b) submitAsk(b.getAttribute("data-lens"), motionSourceFromEvent(e));
@@ -98,6 +104,20 @@ export function initAskFollowups(){
 }
 
 function inAsk(e){ return e.target && e.target.closest && e.target.closest("#ask"); }
+
+  // Render the ask-popup lens buttons from the config-driven LENS_ORDER. Called
+  // once at init (after initCore has installed the active lens set).
+  function renderLensButtons(){
+    var box = document.getElementById("ask-lenses");
+    if (!box) return;
+    var html = "";
+    for (var i = 0; i < LENS_ORDER.length; i++){
+      var id = LENS_ORDER[i];
+      var kbd = i < 9 ? ' <kbd>' + (i + 1) + '</kbd>' : '';
+      html += '<button class="lens" data-lens="' + esc(id) + '">' + esc(lensLabel(id)) + kbd + '</button>';
+    }
+    box.innerHTML = html;
+  }
 
   function maybeShowAsk(){
     var sel = window.getSelection();
@@ -126,7 +146,7 @@ function inAsk(e){ return e.target && e.target.closest && e.target.closest("#ask
                    startOff: startOff, endOff: endOff, range: range.cloneRange() };
     paintAskHighlight(pendingAsk.range);
     askText.value = "";
-    askText.placeholder = "Ask about this… ↵ = Explain";
+    askText.placeholder = "Ask about this…";
     var rect = range.getBoundingClientRect();
     ask.style.left = Math.min(window.innerWidth - 392, Math.max(10, rect.left)) + "px";
     ask.style.top = Math.min(window.innerHeight - 200, rect.bottom + 8) + "px";
@@ -147,15 +167,20 @@ export function hideAsk(){ ask.classList.remove("visible"); pendingAsk = null; c
     try { if (window.CSS && CSS.highlights) CSS.highlights.delete("rh-ask"); } catch(e){}
   }
 
-  var LENS_KEYS = { "1": "explain", "2": "eli5", "3": "example", "4": "deeper" };
+  // Number-key shortcut → lens id, derived live from the config-driven LENS_ORDER
+  // (keys 1..9). Read at press time so it tracks whatever lens set initCore installed.
+  function lensForDigit(key){
+    var i = /^[1-9]$/.test(key) ? parseInt(key, 10) : 0;
+    return i && i <= LENS_ORDER.length ? LENS_ORDER[i - 1] : null;
+  }
   function onAskTextKeydown(e){
     if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); submitAsk(null, "keyboard"); }
     else if (e.key === "Escape"){ hideAsk(); }
     // Number keys are lens shortcuts only while the box is empty — once the
     // human starts typing a question, digits are just digits.
-    else if (askText.value === "" && !e.metaKey && !e.ctrlKey && !e.altKey && LENS_KEYS[e.key]){
+    else if (askText.value === "" && !e.metaKey && !e.ctrlKey && !e.altKey && lensForDigit(e.key)){
       e.preventDefault();
-      submitAsk(LENS_KEYS[e.key], "keyboard");
+      submitAsk(lensForDigit(e.key), "keyboard");
     }
   }
 

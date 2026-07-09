@@ -417,6 +417,9 @@ export async function listHoles() {
     try {
       const raw = await fs.readFile(path.join(holesDir(), name), "utf-8");
       const hole = JSON.parse(raw);
+      // Skip non-hole JSON that shares this dir (e.g. config.json for the
+      // config-driven lenses) — a real hole always has a string hole_id.
+      if (!hole || typeof hole.hole_id !== "string") continue;
       holes.push({
         hole_id: hole.hole_id,
         title: hole.title,

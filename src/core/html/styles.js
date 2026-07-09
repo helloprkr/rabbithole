@@ -385,8 +385,8 @@ body.mode-canvas #toolbar { display: flex; }
   font-family: var(--font-ui); font-size: 13px; line-height: 1.5; padding: 3px 0; min-height: 20px; max-height: 110px; }
 .ask-input textarea::placeholder { color: var(--fg-faint); }
 .ask-input .send-btn { width: 26px; height: 26px; }
-.ask-lenses { display: flex; gap: 2px; padding: 5px; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--fg) 2.5%, transparent); }
-.lens { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-family: var(--font-ui); font-size: 11px; font-weight: 500;
+.ask-lenses { display: flex; flex-wrap: wrap; gap: 2px; padding: 5px; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--fg) 2.5%, transparent); }
+.lens { flex: 1 1 40%; display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-family: var(--font-ui); font-size: 11px; font-weight: 500;
   color: var(--fg-dim); background: none; border: none; border-radius: 8px; padding: 5.5px 2px; cursor: pointer; white-space: nowrap;
   transition: color 0.12s, background 0.12s; }
 .lens:hover { color: var(--fg-bold); background: var(--hl); }

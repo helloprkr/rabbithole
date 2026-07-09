@@ -2,7 +2,9 @@ import {
   BRANCH_FOLLOWUP,
   BRANCH_SELECTION,
   LENSES,
+  LENS_ORDER,
   branchTypeOfNode,
+  configureLenses,
   lensLabel as sharedLensLabel,
   truncate as sharedTruncate
 } from "../core/model.js";
@@ -18,7 +20,7 @@ import {
   unionBounds as sharedUnionBounds
 } from "../core/layout.js";
 
-export { BRANCH_FOLLOWUP, BRANCH_SELECTION, DEFAULT_CHILD, DEFAULT_ROOT, LENSES, TREE_PARENT_GAP, TREE_STACK_GAP };
+export { BRANCH_FOLLOWUP, BRANCH_SELECTION, DEFAULT_CHILD, DEFAULT_ROOT, LENSES, LENS_ORDER, TREE_PARENT_GAP, TREE_STACK_GAP };
 
 export var SVGNS = "http://www.w3.org/2000/svg";
 export var MIN_SCALE = 0.15, MAX_SCALE = 2.5;
@@ -88,6 +90,9 @@ export function registerCoreHooks(hooks) {
 
 export function initCore(inputHydration) {
   hydration = inputHydration || {};
+  // Config-driven lenses (Warren patch 1): rebuild the shared LENSES/LENS_ORDER
+  // from the server-resolved list, falling back to the built-in four when absent.
+  configureLenses(hydration.lenses);
   rootId = hydration.root_id;
   frozen = !!hydration.frozen;
   nodes = {};
