@@ -34,7 +34,13 @@ import { resolveMarkdownUrl } from "./base-url.js";
 export const MARKDOWN_RENDERER_SENTINEL = "rabbithole-shared-markdown-renderer-v1";
 
 const SAFE_URL = /^(?:https?:|mailto:|tel:|#|\/|\.\/|\.\.\/|[^:]*$)/i;
-const SAFE_IMG = /^(?:https?:\/\/|\/|\.\/|\.\.\/|blob:|asset:[a-z0-9][a-z0-9_-]*\.(?:png|jpe?g|gif|webp|svg)$|data:image\/(?:png|jpe?g|gif|webp|svg);base64,)/i;
+// Warren patch 2 (re-ported): allow `data:image/svg+xml;base64,` alongside the
+// raster types. Upstream added `svg` but not `svg+xml`, and every existing
+// Visualize node embeds its three-altitude diagram as an `svg+xml` data-URI —
+// without this, all previously-published visuals fail the match and vanish. SVG
+// delivered via <img src="data:..."> is script-inert (no JS, no external fetch),
+// so it is safe to allow; DOMPurify still guards the `show`-fence HTML path.
+const SAFE_IMG = /^(?:https?:\/\/|\/|\.\/|\.\.\/|blob:|asset:[a-z0-9][a-z0-9_-]*\.(?:png|jpe?g|gif|webp|svg)$|data:image\/(?:png|jpe?g|gif|webp|svg\+xml|svg);base64,)/i;
 // Whitespace/control chars used to obfuscate a scheme (e.g. "java\tscript:").
 const URL_NOISE = new RegExp("[\\u0000-\\u0020]+", "g");
 const INLINE_DOLLAR = "$";

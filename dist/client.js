@@ -31152,7 +31152,7 @@ ${text2}</tr>
   // src/core/markdown-renderer.js
   var MARKDOWN_RENDERER_SENTINEL = "rabbithole-shared-markdown-renderer-v1";
   var SAFE_URL = /^(?:https?:|mailto:|tel:|#|\/|\.\/|\.\.\/|[^:]*$)/i;
-  var SAFE_IMG = /^(?:https?:\/\/|\/|\.\/|\.\.\/|blob:|asset:[a-z0-9][a-z0-9_-]*\.(?:png|jpe?g|gif|webp|svg)$|data:image\/(?:png|jpe?g|gif|webp|svg);base64,)/i;
+  var SAFE_IMG = /^(?:https?:\/\/|\/|\.\/|\.\.\/|blob:|asset:[a-z0-9][a-z0-9_-]*\.(?:png|jpe?g|gif|webp|svg)$|data:image\/(?:png|jpe?g|gif|webp|svg\+xml|svg);base64,)/i;
   var URL_NOISE = new RegExp("[\\u0000-\\u0020]+", "g");
   var INLINE_DOLLAR = "$";
   var DISPLAY_DOLLARS = "$$";
