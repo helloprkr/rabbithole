@@ -27,6 +27,7 @@ import {
   flashHint,
   frozen,
   agentAttached,
+  authorChipFor,
   isFollowup,
   isSelectionBranch,
   isUnread,
@@ -145,6 +146,19 @@ export function createNodeEl(node, enter){
       var badge = document.createElement("span"); badge.className = "node-badge"; badge.textContent = "🐇";
       badge.title = "Where this Rabbithole begins";
       head.appendChild(badge);
+    }
+    // Author color (Warren patch 3): a merged team hole tints each card's left
+    // border and prepends an author chip. No author → nothing added, so a personal
+    // card is untouched.
+    var authorInfo = authorChipFor(node);
+    if (authorInfo){
+      el.classList.add("has-author");
+      el.style.setProperty("--author-color", authorInfo.color);
+      var authorChip = document.createElement("span");
+      authorChip.className = "node-author";
+      authorChip.textContent = authorInfo.slug;
+      authorChip.title = "Authored by " + authorInfo.slug;
+      head.appendChild(authorChip);
     }
     var titleEl = document.createElement("span"); titleEl.className = "node-title"; titleEl.textContent = node.title || "…";
     titleEl.title = node.title || "";

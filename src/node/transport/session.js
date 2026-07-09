@@ -8,6 +8,7 @@ import { maybeUpgradeBaseUrlFromFrontmatter, normalizeBaseUrl } from "../../core
 import { extractAssetRefsFromMarkdown } from "../../core/assets.js";
 import { createHoleState, holeStateToHole, reduceHoleEvent } from "../../core/reducer.js";
 import { configureLenses, lineageTitlesFromMap } from "../../core/model.js";
+import { deriveAuthorHydration } from "../../core/team-palette.js";
 import { getLenses } from "../lenses.js";
 import { buildJsonError, parseRequestBody, closeServerGracefully, CLOSE_TIMEOUT_MS } from "./http.js";
 import { writeSseEvent } from "./sse.js";
@@ -417,6 +418,11 @@ export class RabbitHoleSession {
     // and fails soft to the built-in four.
     const lenses = getLenses();
     configureLenses(lenses);
+    // Author colors (Warren patch 3): derive the author→color map on the server
+    // from origin.author across the hole's nodes, shipped on the SAME hydration
+    // seam as lenses. Returns null when no node carries an author, so the keys are
+    // omitted entirely and a personal hole's page is byte-for-byte unchanged.
+    const authorHydration = deriveAuthorHydration(this.nodes.values());
     return {
       session_id: this.id,
       hole_id: this.holeId,
@@ -431,6 +437,9 @@ export class RabbitHoleSession {
       // The browser rebuilds its LENSES from this list, falling back to the
       // built-in four when absent/empty (see core/model.js configureLenses).
       lenses,
+      // authors: node_id → author slug; authorColors: author slug → hex.
+      // Present only when at least one node has an origin.author.
+      ...(authorHydration || {}),
       nodes: this.serializeNodes(),
     };
   }

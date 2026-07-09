@@ -27,6 +27,11 @@ export var MIN_SCALE = 0.15, MAX_SCALE = 2.5;
 export var READER_BASE = 17, CANVAS_BASE = 14, MIN_FS = 0.7, MAX_FS = 2.4;
 
 export var hydration = null;
+// Author colors (Warren patch 3): the server-derived maps, installed at initCore.
+// authorsByNode: node_id → author slug; authorColors: author slug → hex. Both empty
+// for a personal hole (the server omits the keys), so no card gets a chip or tint.
+export var authorsByNode = {};
+export var authorColors = {};
 export var rootId = null;
 export var frozen = false; // read-only exported snapshot
 export var nodes = {};
@@ -93,6 +98,10 @@ export function initCore(inputHydration) {
   // Config-driven lenses (Warren patch 1): rebuild the shared LENSES/LENS_ORDER
   // from the server-resolved list, falling back to the built-in four when absent.
   configureLenses(hydration.lenses);
+  // Author colors (Warren patch 3): the maps ride hydration exactly like lenses.
+  // Absent (personal hole) → empty maps → authorChipFor returns null for every node.
+  authorsByNode = hydration.authors || {};
+  authorColors = hydration.authorColors || {};
   rootId = hydration.root_id;
   frozen = !!hydration.frozen;
   nodes = {};
@@ -348,6 +357,17 @@ export function updateSince(){
       ? "An answer arrived while you were away"
       : n + " answers arrived while you were away";
     sinceEl.classList.add("visible");
+  }
+  // ---------- author colors ----------
+  // The author chip + border tint for a node, or null when the node has no author
+  // (personal holes, root nodes, and any live ask made by the local human — those
+  // never appear in the server-shipped authors map, so they render exactly as before).
+export function authorChipFor(node){
+    if (!node) return null;
+    var slug = authorsByNode[node.id];
+    if (!slug) return null;
+    var color = authorColors[slug];
+    return color ? { slug: slug, color: color } : null;
   }
 export function lensLabel(key){ return sharedLensLabel(key); }
 export function lensBadgeHtml(key){ return '<span class="lens-badge">' + esc(lensLabel(key)) + '</span>'; }

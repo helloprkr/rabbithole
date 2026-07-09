@@ -1810,6 +1810,8 @@ var RabbitholeClient = (() => {
   var MIN_FS = 0.7;
   var MAX_FS = 2.4;
   var hydration = null;
+  var authorsByNode = {};
+  var authorColors = {};
   var rootId = null;
   var frozen = false;
   var nodes = {};
@@ -1876,6 +1878,8 @@ var RabbitholeClient = (() => {
   function initCore(inputHydration) {
     hydration = inputHydration || {};
     configureLenses(hydration.lenses);
+    authorsByNode = hydration.authors || {};
+    authorColors = hydration.authorColors || {};
     rootId = hydration.root_id;
     frozen = !!hydration.frozen;
     nodes = {};
@@ -2202,6 +2206,13 @@ var RabbitholeClient = (() => {
     }
     sinceMsg.textContent = n === 1 ? "An answer arrived while you were away" : n + " answers arrived while you were away";
     sinceEl.classList.add("visible");
+  }
+  function authorChipFor(node) {
+    if (!node) return null;
+    var slug = authorsByNode[node.id];
+    if (!slug) return null;
+    var color = authorColors[slug];
+    return color ? { slug, color } : null;
   }
   function lensLabel2(key) {
     return lensLabel(key);
@@ -2989,6 +3000,16 @@ var RabbitholeClient = (() => {
       badge.textContent = "\u{1F407}";
       badge.title = "Where this Rabbithole begins";
       head.appendChild(badge);
+    }
+    var authorInfo = authorChipFor(node);
+    if (authorInfo) {
+      el.classList.add("has-author");
+      el.style.setProperty("--author-color", authorInfo.color);
+      var authorChip = document.createElement("span");
+      authorChip.className = "node-author";
+      authorChip.textContent = authorInfo.slug;
+      authorChip.title = "Authored by " + authorInfo.slug;
+      head.appendChild(authorChip);
     }
     var titleEl = document.createElement("span");
     titleEl.className = "node-title";

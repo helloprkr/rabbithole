@@ -292,12 +292,21 @@ body.mode-canvas #viewport { display: block; }
 .node.node-enter { opacity: 0; transform: translateY(8px); transition: opacity 180ms cubic-bezier(0.23, 1, 0.32, 1), transform 180ms cubic-bezier(0.23, 1, 0.32, 1); }
 .node.node-enter.entered { opacity: 1; transform: translateY(0); }
 .node.root { border-color: var(--border-focus); }
+/* Author colors (Warren patch 3): a merged team hole tints each card's left edge
+   with its author's color. box-sizing:border-box keeps the widened border from
+   shifting the card's width. Personal holes never get .has-author, so untouched. */
+.node.has-author { border-left: 3px solid var(--author-color, var(--border)); }
 /* The head stays minimal — just the title — so the card reads like a document.
    Controls sit in a right-edge overlay with secondary text sizing de-emphasized. */
 .node-head { position: relative; display: flex; align-items: center; padding: 8px 12px; background: var(--node-head); border-bottom: 1px solid var(--border); border-radius: 9px 9px 0 0; cursor: grab; user-select: none; flex-shrink: 0; }
 .node-head:active { cursor: grabbing; }
 .node-title { font-size: 11.5px; font-weight: 600; letter-spacing: 0.01em; color: var(--fg-bold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
 .node-badge { font-size: 12px; line-height: 1; margin-right: 7px; flex-shrink: 0; cursor: default; }
+/* Author chip: a small pill next to the title, colored by the node's author. */
+.node-author { display: inline-block; max-width: 130px; margin-right: 7px; flex-shrink: 0; overflow: hidden;
+  font-family: var(--font-ui); font-size: 9.5px; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap; text-overflow: ellipsis;
+  color: var(--author-color); border: 1px solid color-mix(in srgb, var(--author-color) 45%, transparent);
+  background: color-mix(in srgb, var(--author-color) 13%, transparent); border-radius: 999px; padding: 1.5px 7px; cursor: default; }
 .node-acts { position: absolute; top: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 0; padding: 0 7px 0 30px; pointer-events: none; background: linear-gradient(90deg, transparent, var(--node-head) 28%); border-radius: 0 9px 0 0; }
 @media (hover: none) { .node-acts { position: static; padding: 0 0 0 8px; background: none; } }
 .node-act-divider { width: 1px; height: 14px; margin: 0 3px; background: var(--border); flex-shrink: 0; opacity: 0; transition: opacity 150ms ease; }
