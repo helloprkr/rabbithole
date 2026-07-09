@@ -14,6 +14,7 @@
     "build": "node build.mjs",
     "check:dist": "node scripts/check-dist.mjs",
     "check:purity": "node scripts/check-ui-purity.mjs",
+    "smoke": "node scripts/smoke.mjs",
     "test": "npm run test:stage1 && npm run test:stage2 && npm run test:stage3 && npm run test:stage4 && npm run test:stage5 && npm run test:stage6 && npm run test:stage7 && npm run test:stage8 && npm run test:stage9 && npm run test:stage9-idb && npm run test:stage10 && npm run test:stage11",
     "test:stage1": "node test/stage1-verify.mjs",
     "test:stage2": "node test/stage2-verify.mjs",
