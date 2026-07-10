@@ -1,11 +1,12 @@
 import { BRANCH_FOLLOWUP, BRANCH_SELECTION, branchTypeOfNode } from "./model.js";
 
-// Reading-width defaults: ~70ch of body text per card, sized for group reads
-// where each card is a document section, not a chat bubble.
-export const DEFAULT_ROOT = Object.freeze({ w: 960, h: 680 });
-export const DEFAULT_CHILD = Object.freeze({ w: 840, h: 600 });
-export const TREE_PARENT_GAP = 70;
-export const TREE_STACK_GAP = 30;
+// Page-size defaults (≈US Letter at 96dpi): most source documents are pages,
+// so cards open as pages — not chat bubbles. Gaps sized so page-tall siblings
+// read as a spine with air between them, not a shingled stack.
+export const DEFAULT_ROOT = Object.freeze({ w: 880, h: 1120 });
+export const DEFAULT_CHILD = Object.freeze({ w: 820, h: 1060 });
+export const TREE_PARENT_GAP = 90;
+export const TREE_STACK_GAP = 60;
 
 export function nodeOrder(a, b) {
   return ((a?._order || 0) - (b?._order || 0)) || String(a?.id || "").localeCompare(String(b?.id || ""));
