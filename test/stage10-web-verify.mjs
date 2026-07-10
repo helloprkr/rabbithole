@@ -110,6 +110,11 @@ try {
   await page.waitForTimeout(900);
   await page.reload({ waitUntil: "networkidle" });
   await page.waitForFunction(() => !!window.__rhWebApp && !!document.querySelector(".doc-content[data-node-id]"));
+  // The session-only key cleared with the reload; the #hole= boot path now
+  // announces that with the settings modal — acknowledge it and read on.
+  await page.waitForSelector("#web-settings-modal:not([hidden])");
+  await page.click("#web-settings-close");
+  await page.waitForSelector("#web-settings-modal[hidden]", { state: "attached" });
   const reloadedRaw = await page.evaluate(() => window.__rhWebApp.readRawHole().then((hole) => JSON.stringify(hole)));
   assert(reloadedRaw.includes("Euler identity connects rotation"));
   assert(reloadedRaw.includes("Second branch explains the geometric view"));

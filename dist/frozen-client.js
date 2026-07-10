@@ -4826,7 +4826,7 @@ var RabbitholeFrozenClient = (() => {
     return {
       session_id: hydration.session_id || null,
       hole_id: hydration.hole_id || null,
-      title: hydration.title || "Rabbithole",
+      title: hydration.title || "Clew",
       root_id: rootId,
       last_event_id: 0,
       agent_attached: false,
@@ -4838,7 +4838,7 @@ var RabbitholeFrozenClient = (() => {
   }
   function buildSnapshotHtml(snapshotHydration) {
     var _a2;
-    var title = snapshotHydration && snapshotHydration.title || "Rabbithole";
+    var title = snapshotHydration && snapshotHydration.title || "Clew";
     var styleText = ((_a2 = document.querySelector("style")) == null ? void 0 : _a2.textContent) || "";
     var dompurifySource = extractDompurifySource();
     var frozenClient = typeof snapshotHooks.getFrozenClientSource === "function" ? snapshotHooks.getFrozenClientSource() : window.__RABBITHOLE_FROZEN_CLIENT__;

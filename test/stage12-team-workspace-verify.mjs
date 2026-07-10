@@ -40,6 +40,7 @@ const teamHole = {
 };
 
 const branchPosts = [];
+const sseClients = [];
 const teamServer = await serveDist(WEB_DIST, { team: true });
 const plainServer = await serveDist(WEB_DIST, { team: false });
 const teamUrl = `http://127.0.0.1:${teamServer.address().port}`;
@@ -74,6 +75,8 @@ try {
   await page.waitForSelector(".team-badge");
   assert.match(await page.textContent(".team-badge"), /team · zy-smith/);
 
+
+
   // --- novel nodes (and only novel nodes) sync with origin.author -----------
   await page.evaluate(async () => {
     const hole = await window.__rhWebApp.store.loadHole("teamhole1");
@@ -99,11 +102,80 @@ try {
   await page.evaluate(() => window.__rhWebApp.teamSyncNow(true));
   assert.equal(branchPosts.length, 1, "already-synced nodes must not re-post");
 
+  // --- down-sync: work merged on the hub pops into the open canvas ----------
+  // The hub's hole.json grows a node (nightly merge / another member / an
+  // agent-answered ask); a pull must ingest it, render it, and NOT echo it
+  // back up as if it were local work.
+  teamHole.nodes.push(baseNode({ id: "n4", parent_id: "n1", title: "Merged hub answer", markdown: "Landed via the hourly merge." }));
+  const pulled = await page.evaluate(() => window.__rhWebApp.teamPullNow());
+  assert.equal(pulled, 1, "one remote node should be ingested");
+  await page.waitForFunction(async () => {
+    const hole = await window.__rhWebApp.readRawHole();
+    return hole && hole.nodes.some((n) => n.id === "n4");
+  });
+  // The reader shows asks in its sidebar; a merged document node becomes
+  // visible as a card once the spatial canvas is open.
+  await page.click("#r-canvas");
+  await page.waitForFunction(() => document.body.classList.contains("mode-canvas")
+    && document.body.textContent.includes("Merged hub answer"));
+  const pulledAgain = await page.evaluate(() => window.__rhWebApp.teamPullNow());
+  assert.equal(pulledAgain, 0, "a second pull must ingest nothing new");
+  await page.evaluate(() => window.__rhWebApp.teamSyncNow(true));
+  assert.equal(branchPosts.length, 1, "pulled hub nodes must never be POSTed back up");
+
+  // --- live push: a branch POSTed to the hub streams straight onto the open
+  // canvas (SSE), with no pull and no merge tick in between — the agent-path
+  // (Claude Code via MCP) answer appears in seconds. Streamed nodes join the
+  // synced set and are never echoed back up.
+  await waitFor(() => sseClients.length > 0, "canvas subscribes to the branch stream");
+  pushBranchEvent({
+    ts: "2026-07-10T02:00:00.000Z",
+    author: "agent-jordan",
+    hole: TEAM_SLUG,
+    nodes: [{ id: "n5", parent_id: "n1", title: "Live agent answer", markdown: "Pushed over SSE, no tick needed.", origin: { author: "agent-jordan" } }],
+  });
+  await page.waitForFunction(async () => {
+    const hole = await window.__rhWebApp.readRawHole();
+    return hole && hole.nodes.some((n) => n.id === "n5");
+  });
+  assert.ok(
+    await page.waitForFunction(() => document.body.textContent.includes("Live agent answer")),
+    "the streamed card renders on the open canvas",
+  );
+  await page.evaluate(() => window.__rhWebApp.teamSyncNow(true));
+  assert.equal(branchPosts.length, 1, "streamed nodes must never be POSTed back up");
+
+  // --- a reloaded key-less canvas announces itself instead of failing silently
+  // (session-only keys live in page memory and clear when the browser discards
+  // a long-idle tab; the #hole= boot path must surface that on open, not on
+  // the first failed ask)
+  // Not networkidle: the canvas now holds an ever-open SSE stream, so the network
+  // never idles once team mode is live.
+  await page.reload({ waitUntil: "load" });
+  await page.waitForSelector(".team-badge");
+  await page.waitForSelector("#web-settings-modal:not([hidden])");
+  await page.click("#web-settings-close");
+  await page.waitForSelector("#web-settings-modal[hidden]", { state: "attached" });
+
   console.log("stage12 team workspace verification passed");
 } finally {
   await browser.close();
   await new Promise((resolve) => teamServer.close(resolve));
   await new Promise((resolve) => plainServer.close(resolve));
+}
+
+async function waitFor(cond, what, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (cond()) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(`timed out waiting for: ${what}`);
+}
+
+function pushBranchEvent(record) {
+  const frame = `event: branch\ndata: ${JSON.stringify(record)}\n\n`;
+  for (const res of sseClients) res.write(frame);
 }
 
 function baseNode({ id, parent_id, title, markdown }) {
@@ -125,6 +197,16 @@ async function serveDist(rootDir, { team }) {
     if (team && url.pathname === `/h/${TEAM_SLUG}/hole.json`) {
       res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
       res.end(JSON.stringify(teamHole));
+      return;
+    }
+    if (team && url.pathname === "/api/branches/stream") {
+      res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
+      res.write("retry: 3000\n\nevent: hello\ndata: {}\n\n");
+      sseClients.push(res);
+      res.on("close", () => {
+        const i = sseClients.indexOf(res);
+        if (i !== -1) sseClients.splice(i, 1);
+      });
       return;
     }
     if (team && url.pathname === "/api/branches" && req.method === "POST") {

@@ -12,7 +12,7 @@ import { CANVAS_SHELL } from "../../core/html/shell.js";
 import { CANVAS_STYLES } from "../../core/html/styles.js";
 
 export function buildCanvasHtml(hydration) {
-  const title = hydration?.title || "Rabbithole";
+  const title = hydration?.title || "Clew";
   const hydrationJson = serializeForInlineScript(hydration);
   const frozen = !!hydration?.frozen;
   const clientBundle = frozen ? getFrozenClientBundle() : getClientBundle();

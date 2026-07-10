@@ -83,8 +83,6 @@ button {
   display: block;
 }
 
-.home-wordmark h1,
-.home-promise,
 .home-lede,
 .composer-head h2,
 .hole-list-head h2,
@@ -93,16 +91,24 @@ button {
 }
 
 .home-wordmark h1 {
+  display: inline-flex;
+  align-items: center;
   margin: 0;
   color: var(--fg-bold);
-  font: 500 27px/1.1 var(--font-doc);
+}
+
+.home-wordmark h1 svg {
+  display: block;
+  height: 30px;
+  width: auto;
 }
 
 .home-promise {
   max-width: 720px;
   margin: 80px 0 0;
   color: var(--fg-bold);
-  font: 500 54px/1.08 var(--font-doc);
+  font: 400 56px/1.08 var(--font-display);
+  letter-spacing: 0.005em;
 }
 
 .home-lede {
@@ -110,6 +116,19 @@ button {
   margin: 22px 0 0;
   color: var(--fg);
   font: 19px/1.62 var(--font-doc);
+}
+
+.home-lede-quiet {
+  margin-top: 10px;
+  color: var(--fg-dim);
+}
+
+.hero-thread {
+  display: block;
+  width: 100%;
+  height: 14px;
+  margin-top: 34px;
+  color: var(--clew-thread);
 }
 
 .hole-list-wrap {
@@ -127,8 +146,10 @@ button {
 
 .hole-list-head h2 {
   margin: 0;
-  color: var(--fg-bold);
-  font: 600 13px/1 var(--font-ui);
+  color: var(--fg-dim);
+  font: 500 11px/1 var(--font-mono);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .hole-list {
@@ -175,7 +196,7 @@ button {
   flex-wrap: wrap;
   gap: 8px 14px;
   color: var(--fg-dim);
-  font: 12.5px/1.35 var(--font-ui);
+  font: 11.5px/1.35 var(--font-mono);
 }
 
 .hole-delete {
@@ -224,7 +245,8 @@ button {
 .composer-head h2 {
   margin: 0;
   color: var(--fg-bold);
-  font: 600 20px/1.2 var(--font-ui);
+  font: 400 24px/1.15 var(--font-display);
+  letter-spacing: 0.005em;
 }
 
 .composer-head p,
@@ -251,7 +273,9 @@ button {
 .field > label,
 .key-field > label {
   color: var(--fg-dim);
-  font: 600 12px/1.2 var(--font-ui);
+  font: 500 11px/1.2 var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .web-input,
@@ -335,14 +359,15 @@ button {
 }
 
 .web-primary {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--accent-contrast);
+  border-color: var(--btn-bg);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
   padding: 11px 14px;
 }
 
 .web-primary:hover {
-  filter: brightness(1.05);
+  border-color: var(--btn-bg-hover);
+  background: var(--btn-bg-hover);
 }
 
 .web-primary:active,
@@ -575,15 +600,16 @@ button {
 
 .key-walkthrough,
 .home-footnotes a {
-  color: var(--accent);
+  color: var(--fg);
   font: 13px/1.45 var(--font-ui);
   text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  text-decoration-color: color-mix(in srgb, var(--accent) 65%, transparent);
   text-underline-offset: 3px;
 }
 
 .key-walkthrough:hover,
 .home-footnotes a:hover {
+  color: var(--accent);
   text-decoration-color: var(--accent);
 }
 
@@ -610,6 +636,7 @@ button {
   color: var(--fg-bold);
   font-family: var(--font-mono);
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .copy-command {
@@ -660,7 +687,15 @@ button {
   top: 10px;
   right: 12px;
   display: flex;
+  align-items: center;
   gap: 8px;
+}
+
+/* The fixed bar floats over the reader's own top-row buttons (worst in team
+   mode, where the badge + Send make it wide) — reserve its measured width so
+   Canvas/Share/Done stay clickable. Set from JS after the bar renders. */
+html.web-canvas-active #reader-top {
+  padding-right: var(--web-bar-w, 16px);
 }
 
 .web-settings-modal[hidden] {
@@ -683,7 +718,7 @@ button {
   border-radius: 8px;
   background: var(--node-bg);
   padding: 16px;
-  box-shadow: 0 18px 60px rgba(0,0,0,0.22);
+  box-shadow: var(--shadow);
 }
 
 .web-settings-dialog .settings-panel {
@@ -815,7 +850,7 @@ button {
 
   .home-promise {
     margin-top: 56px;
-    font-size: 38px;
+    font-size: 40px;
   }
 
   .home-lede {

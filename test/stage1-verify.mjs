@@ -172,7 +172,7 @@ async function assertPageAssembly() {
       ["export", exportHtml],
     ]) {
       assert.equal(count(html, KATEX_CSS_SENTINEL), 1, `${label} should include KaTeX CSS once`);
-      assert.equal(count(html, "data:font/woff2;base64,"), 20, `${label} should inline KaTeX woff2 fonts`);
+      assert.equal(count(html, "data:font/woff2;base64,"), 21, `${label} should inline the KaTeX woff2 fonts plus the Clew display face`);
       assert(!/fonts\/KaTeX_[^)]+\.(?:woff|ttf)/.test(html), `${label} should not reference external KaTeX fonts`);
       assert(html.includes("Root with $x^2$."), `${label} should carry markdown in hydration`);
       assert(!html.includes('"contentHtml"'), `${label} hydration should not carry server-rendered HTML`);

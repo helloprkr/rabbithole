@@ -6,13 +6,14 @@ import { TitleSentinelParser, fallbackTitleForNode, normalizeProviderError } fro
 const SAVE_DEBOUNCE_MS = 400;
 
 export class DirectRabbitholeHost {
-  constructor({ store, hole, brain = null, onEvent = null, onToast = null, onDone = null, onRestore = null } = {}) {
+  constructor({ store, hole, brain = null, onEvent = null, onToast = null, onDone = null, onRestore = null, onNeedsKey = null } = {}) {
     this.store = store;
     this.brain = brain;
     this.onEvent = onEvent;
     this.onToast = onToast;
     this.onDone = onDone;
     this.onRestore = onRestore;
+    this.onNeedsKey = onNeedsKey;
     this.state = createHoleState(hole);
     this.holeId = this.state.hole_id;
     this.title = this.state.title;
@@ -218,7 +219,12 @@ export class DirectRabbitholeHost {
   async runAnswer(nodeId, controller) {
     const node = this.state.nodes.get(nodeId);
     if (!node || node.status !== "pending") return;
-    if (!this.brain) throw new Error("Add a provider key in Settings before asking.");
+    if (!this.brain) {
+      // Session-only keys live in page memory and vanish when the browser
+      // silently reloads a long-idle tab — surface that instead of failing quietly.
+      this.onNeedsKey?.();
+      throw new Error("Add a provider key in Settings before asking.");
+    }
 
     const context = this.buildBranchContext(node);
     const parser = new TitleSentinelParser({ fallbackTitle: fallbackTitleForNode(node) });
@@ -336,6 +342,53 @@ export class DirectRabbitholeHost {
   isLivePending(nodeId) {
     const node = this.state.nodes.get(nodeId);
     return !!node && node.status === "pending";
+  }
+
+  // Merge nodes fetched from a remote copy of this hole (the team hub) into the
+  // live session. Only ids we don't hold are ingested — local work, including a
+  // currently-streaming answer, is never clobbered. Each ingested node is
+  // dispatched AND emitted as node_answered: the client self-heals unknown ids
+  // into new cards and files them under "Since you left". Parents are ingested
+  // before children; nodes whose parent never materializes are skipped.
+  ingestRemoteNodes(remoteNodes = []) {
+    const queue = (Array.isArray(remoteNodes) ? remoteNodes : []).filter(
+      (n) => n && typeof n.id === "string" && n.id && !this.state.nodes.has(n.id)
+    );
+    const added = [];
+    let progressed = true;
+    while (queue.length && progressed) {
+      progressed = false;
+      for (let i = 0; i < queue.length; i++) {
+        const n = queue[i];
+        const parentId = n.parent_id ?? null;
+        if (parentId && !this.state.nodes.has(parentId)) continue;
+        queue.splice(i, 1);
+        i -= 1;
+        progressed = true;
+        const event = {
+          type: "node_answered",
+          node_id: n.id,
+          parent_id: parentId,
+          title: typeof n.title === "string" ? n.title : "",
+          markdown: typeof n.markdown === "string" ? n.markdown : "",
+          base_url: n.base_url ?? null,
+          base_url_source: n.base_url_source ?? null,
+          origin: n.origin && typeof n.origin === "object" ? n.origin : null,
+          position: n.position && Number.isFinite(n.position.x) && Number.isFinite(n.position.y)
+            ? { x: n.position.x, y: n.position.y }
+            : { x: 0, y: 0 },
+          size: n.size ?? null,
+          font_scale: n.font_scale ?? 1,
+          created_at: typeof n.created_at === "string" ? n.created_at : null,
+          read: false,
+        };
+        this.dispatch(event);
+        this.emit(event);
+        added.push(n.id);
+      }
+    }
+    if (added.length) this.scheduleSave();
+    return added;
   }
 
   emit(event) {

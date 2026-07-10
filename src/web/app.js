@@ -20,6 +20,10 @@ const OPENROUTER_WALKTHROUGH_URL = "https://openrouter.ai/docs/quickstart";
 // published team hole, and a background sync that POSTs novel nodes to the
 // hub's /api/branches inbox — the hourly tick merges them attributed. Absent
 // (personal/local use), everything below is dead code and the app is unchanged.
+// While the team canvas is open it also holds an SSE subscription to
+// `<branchEndpoint>/stream` — every branch another member (or an agent working
+// the MCP path) POSTs to the hub appears on the canvas in seconds. The periodic
+// pull below stays as the fallback for anything the stream missed.
 const TEAM_AUTHOR_KEY = "rh-team-author";
 const TEAM_AUTHOR_RE = /^[a-z0-9_-]{1,32}$/;
 const TEAM_SYNC_EVERY_MS = 20000;
@@ -33,11 +37,12 @@ let teamConfig = null;
 let teamHoleLocalId = "";
 let teamSyncTimer = null;
 let teamSyncBusy = false;
+let teamStream = null;
 
 applyInitialWebTheme();
 
 boot().catch((err) => {
-  document.body.innerHTML = `<main class="web-fatal"><h1>Rabbithole</h1><p>${escapeHtml(err?.message || String(err))}</p></main>`;
+  document.body.innerHTML = `<main class="web-fatal"><h1>Clew</h1><p>${escapeHtml(err?.message || String(err))}</p></main>`;
 });
 
 async function boot() {
@@ -68,13 +73,14 @@ async function renderHome() {
     <header class="home-hero">
       <div class="home-nav">
         <div class="home-wordmark">
-          <span class="home-mark">${bunnyMarkSvg()}</span>
-          <h1>Rabbithole</h1>
+          <h1 aria-label="Clew">${clewWordmarkSvg()}</h1>
         </div>
         <button class="web-secondary settings-open" id="settings-open" type="button" aria-controls="settings-panel" aria-expanded="false">Settings</button>
       </div>
-      <p class="home-promise">An infinite canvas for learning.</p>
-      <p class="home-lede">Open a document, select what makes you curious, ask, and the answer opens beside it.</p>
+      <p class="home-promise">The first clue was a thread.</p>
+      <p class="home-lede">Clew is a canvas for going beyond reading. Open a document, ask questions, and every answer branches beside the text.</p>
+      <p class="home-lede home-lede-quiet">So you can go as deep as you want and always find your way back.</p>
+      ${heroThreadSvg()}
     </header>
 
     <section class="hole-list-wrap" id="saved-section" hidden>
@@ -101,7 +107,7 @@ async function renderHome() {
         </div>
         <label class="field title-field" for="new-title">
           <span>Title</span>
-          <input id="new-title" class="web-input" placeholder="Untitled Rabbithole" autocomplete="off">
+          <input id="new-title" class="web-input" placeholder="Untitled" autocomplete="off">
         </label>
         <label class="field paste-field" for="paste-md">
           <span>Markdown or notes</span>
@@ -363,7 +369,93 @@ function isTeamHole(holeId) {
 
 function startTeamSync() {
   if (teamSyncTimer) clearInterval(teamSyncTimer);
-  teamSyncTimer = setInterval(() => { teamSyncNow(true).catch(() => {}); }, TEAM_SYNC_EVERY_MS);
+  let tick = 0;
+  teamSyncTimer = setInterval(() => {
+    teamSyncNow(true).catch(() => {});
+    // Pull every third tick: merged work from the hub (the hourly merge, other
+    // members, anything the live stream missed) lands on a long-open canvas too.
+    tick += 1;
+    if (tick % 3 === 0) teamPullNow().catch(() => {});
+  }, TEAM_SYNC_EVERY_MS);
+  teamPullNow().catch(() => {});
+  startTeamStream();
+  if (!startTeamSync._visWired) {
+    startTeamSync._visWired = true;
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") teamPullNow().catch(() => {});
+    });
+  }
+}
+
+// Ingest nodes that arrived FROM the hub (pull or live stream) into the open
+// team canvas. Ingested ids join the synced set so they are never POSTed back
+// up as if they were local work. Returns how many nodes were actually new.
+function ingestTeamNodes(nodes) {
+  if (!currentHost || !currentHoleId || currentHoleId !== teamHoleLocalId) return 0;
+  const added = currentHost.ingestRemoteNodes(nodes);
+  if (added.length) {
+    try {
+      const key = teamSyncedStorageKey(currentHoleId);
+      let synced = [];
+      try { synced = JSON.parse(localStorage.getItem(key) || "[]"); } catch {}
+      const syncedSet = new Set(Array.isArray(synced) ? synced : []);
+      for (const id of added) syncedSet.add(id);
+      localStorage.setItem(key, JSON.stringify([...syncedSet]));
+    } catch {}
+  }
+  return added.length;
+}
+
+// Down-sync: fetch the hub's merged copy of the team hole and ingest nodes we
+// don't hold. Without this the local copy is a one-time snapshot — a canvas
+// left open (or reopened) after the hub merged new answers stays stale forever.
+async function teamPullNow() {
+  if (!teamConfig?.hole || !currentHost || !currentHoleId || currentHoleId !== teamHoleLocalId) return 0;
+  let hole;
+  try {
+    const res = await fetch(`../h/${encodeURIComponent(teamConfig.hole)}/hole.json`, { cache: "no-store" });
+    if (!res.ok) return 0;
+    hole = await res.json();
+  } catch {
+    return 0;
+  }
+  if (!hole || !Array.isArray(hole.nodes)) return 0;
+  return ingestTeamNodes(hole.nodes);
+}
+
+// Live up-link: hold an SSE subscription to the hub's branch inbox while the
+// team canvas is open. Every submission another member (or an agent on the MCP
+// path) POSTs to /api/branches for this hole is pushed here immediately —
+// no waiting on the merge tick or the pull cadence. Best-effort by design:
+// EventSource reconnects on its own, and the periodic pull catches anything a
+// dropped stream missed. Ingest goes through the same synced-set plumbing as
+// the pull, so pushed nodes are never echoed back up.
+function startTeamStream() {
+  if (!teamConfig?.hole || typeof EventSource === "undefined") return;
+  stopTeamStream();
+  try {
+    teamStream = new EventSource(`${teamConfig.branchEndpoint}/stream?hole=${encodeURIComponent(teamConfig.hole)}`);
+  } catch {
+    teamStream = null;
+    return;
+  }
+  teamStream.addEventListener("branch", (event) => {
+    let rec;
+    try { rec = JSON.parse(event.data); } catch { return; }
+    if (!rec || rec.hole !== teamConfig.hole || !Array.isArray(rec.nodes)) return;
+    const added = ingestTeamNodes(rec.nodes);
+    if (added) {
+      const who = typeof rec.author === "string" && rec.author ? rec.author : "the team";
+      showToast({ message: `${added} new card${added === 1 ? "" : "s"} from ${who}.` });
+    }
+  });
+}
+
+function stopTeamStream() {
+  if (teamStream) {
+    try { teamStream.close(); } catch {}
+    teamStream = null;
+  }
 }
 
 async function teamSyncNow(silent = false) {
@@ -615,6 +707,12 @@ async function startHole(hole, { replace = false } = {}) {
   <div id="web-toast" class="web-toast" aria-live="polite"></div>`;
 
   initCanvasSettings();
+  const canvasBar = document.querySelector(".web-canvas-bar");
+  if (canvasBar) {
+    requestAnimationFrame(() => {
+      document.documentElement.style.setProperty("--web-bar-w", `${canvasBar.offsetWidth + 28}px`);
+    });
+  }
   setSnapshotHooks({
     fetchAssetData: async (name) => blobToDataUrl(await store.getAsset(currentHoleId, name)),
     getFrozenClientSource: () => window.__RABBITHOLE_FROZEN_CLIENT__ || "",
@@ -624,10 +722,19 @@ async function startHole(hole, { replace = false } = {}) {
   const settings = loadSettings();
   const key = getApiKey(settings);
   const brain = key || !presetFor(settings.preset).requires_key ? createBrain(settings, key) : null;
+  const promptForKey = () => {
+    const modal = document.getElementById("web-settings-modal");
+    if (modal && modal.hidden) {
+      modal.hidden = false;
+      modal.querySelector("input, select, button")?.focus();
+    }
+    showToast({ message: "Add your provider key to keep asking — session-only keys clear when the tab reloads.", timeoutMs: 8000 });
+  };
   currentHost = new DirectRabbitholeHost({
     store,
     hole,
     brain,
+    onNeedsKey: promptForKey,
     onToast: showToast,
     onDone: () => {
       history.pushState(null, "", location.pathname);
@@ -635,6 +742,11 @@ async function startHole(hole, { replace = false } = {}) {
     },
     onRestore: () => location.reload(),
   });
+  // A discarded tab reloads straight into the canvas via #hole=, skipping the
+  // home view's needs-key affordance — surface the missing key immediately.
+  // (Coming from the home view, the user just saw the needs-key panel; the
+  // prompt would be redundant there, so only the hash-boot path gets it.)
+  if (replace && !brain && presetFor(settings.preset).requires_key) promptForKey();
 
   const hydration = currentHost.hydration();
   hydration.asset_data = await buildLiveAssetData(hole.hole_id);
@@ -661,6 +773,7 @@ async function startHole(hole, { replace = false } = {}) {
     currentHoleId: () => currentHoleId,
     readRawHole: (id = currentHoleId) => store.readRawHoleForTest(id),
     teamSyncNow: (silent = false) => teamSyncNow(silent),
+    teamPullNow: () => teamPullNow(),
   };
 }
 
@@ -694,7 +807,7 @@ function initSettingsPanel() {
     <div class="settings-head">
       <div>
         <h2>Provider settings</h2>
-        <p>Connect the model Rabbithole uses when you ask from a selection.</p>
+        <p>Connect the model Clew uses when you ask from a selection.</p>
       </div>
     </div>
     <div class="settings-basic">
@@ -946,12 +1059,22 @@ function apiKeyPlaceholder(presetId) {
   }
 }
 
-function bunnyMarkSvg() {
-  return `<svg width="24" height="24" viewBox="0 0 64 64" fill="currentColor" aria-hidden="true">
-    <ellipse cx="30" cy="17" rx="4.6" ry="12.5" transform="rotate(20 30 17)"></ellipse>
-    <ellipse cx="21.5" cy="15.5" rx="4.6" ry="13" transform="rotate(3 21.5 15.5)"></ellipse>
-    <circle cx="21" cy="33" r="9.5"></circle>
-    <ellipse cx="36" cy="45" rx="17" ry="13.5"></ellipse>
-    <circle cx="52.5" cy="49" r="5"></circle>
+// The Clew wordmark: "Clew" in Instrument Serif outlined to vector paths (never
+// depends on the webfont loading), with the brand's red thread trailing from the
+// terminal of the "w" — it rises slightly, falls in a relaxed S-curve, and sags
+// like real thread. Letterforms take currentColor (paper on dark, ink on light);
+// the thread red is constant in both modes. Thread stroke ~1.6% of cap height.
+function clewWordmarkSvg() {
+  return `<svg viewBox="-20 -770 2340 810" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path fill="currentColor" d="M286 9Q212 9 156.50-37Q101-83 70.50-166.50Q40-250 40-364Q40-474 73.50-556.50Q107-639 163.50-684.50Q220-730 289-730Q330-730 361-722.50Q392-715 416-703Q428-696 428-682L431-530Q431-513 419-513Q408-513 405-526L395-563Q374-641 346.50-671Q319-701 281-701Q211-701 164.50-614.50Q118-528 118-364Q118-252 141.50-175Q165-98 202.50-59Q240-20 282-20Q327-20 354.50-48Q382-76 401-156L413-205Q416-220 429-218Q440-216 440-201L436-39Q436-25 423-18Q399-6 366.50 1.50Q334 9 286 9M683 0L505 0Q493 0 493-11Q493-21 504-23L518-25Q539-28 549-37Q559-46 559-67L559-640Q559-658 553.50-665Q548-672 534-673L511-676Q500-678 500-688Q500-698 511-700Q539-706 559-714Q579-722 592-730Q608-740 616-740Q627-740 627-724L627-67Q627-46 633.50-37.50Q640-29 661-26L684-23Q695-21 695-11Q695 0 683 0M902 9Q854 9 816-23Q778-55 755.50-113.50Q733-172 733-249Q733-328 756-388Q779-448 819-482Q859-516 908-516Q967-516 1003.50-467.50Q1040-419 1040-310Q1040-277 1015-277L825-277Q805-277 805-254Q805-148 836-95Q867-42 915-42Q953-42 977-69Q1001-96 1016-160Q1019-171 1029-171Q1041-171 1038-151Q1022-62 987-26.50Q952 9 902 9M822-302L923-302Q971-302 971-352Q971-417 955-454Q939-491 907-491Q868-491 841.50-446Q815-401 807-318Q805-302 822-302M1257 9Q1244 9 1239-11L1118-443Q1111-467 1104.50-474Q1098-481 1084-484L1069-487Q1056-490 1056-500Q1056-510 1070-510L1232-510Q1246-510 1246-500Q1246-489 1233-487L1217-485Q1193-482 1187-473.50Q1181-465 1187-443L1266-152Q1269-142 1275.50-142Q1282-142 1285-152L1353-411Q1355-419 1355.50-427Q1356-435 1353-444Q1346-468 1339.50-474.50Q1333-481 1319-484L1304-487Q1291-490 1291-500Q1291-510 1305-510L1467-510Q1481-510 1481-500Q1481-489 1468-487L1452-485Q1428-482 1423-473.50Q1418-465 1422-443L1486-154Q1488-144 1494.50-144Q1501-144 1504-154L1580-425Q1588-452 1584.50-465.50Q1581-479 1556-483L1535-487Q1522-490 1522-500Q1522-510 1536-510L1661-510Q1675-510 1675-499Q1675-489 1663-485L1654-482Q1639-477 1628-464Q1617-451 1608-419L1494-11Q1489 9 1475 9Q1463 9 1458-11L1380-331Q1377-342 1370.50-342.50Q1364-343 1361-331L1275-11Q1270 9 1257 9"/>
+    <path fill="none" stroke="#E24B4A" stroke-width="12" stroke-linecap="round" d="M1662 -502 C1732 -548, 1806 -562, 1876 -540 C1962 -513, 2006 -428, 2064 -352 C2114 -286, 2180 -244, 2252 -240"/>
+  </svg>`;
+}
+
+// The single allowed brand gesture on this page: a thin red thread with a slight
+// sag dividing the hero from the work surfaces below.
+function heroThreadSvg() {
+  return `<svg class="hero-thread" viewBox="0 0 800 14" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" vector-effect="non-scaling-stroke" d="M2 4 C 210 11, 590 11, 798 4"/>
   </svg>`;
 }

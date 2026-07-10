@@ -110,6 +110,7 @@ async function buildWebApp(assetDir) {
 
   await fs.writeFile(path.join(webDist, "styles.css"), `${CANVAS_STYLES}\n${katexCss}\n${webCss}`, "utf8");
   await fs.writeFile(path.join(webDist, "dompurify.js"), dompurify, "utf8");
+  await fs.cp(path.join(rootDir, "src/web/assets"), webDist, { recursive: true });
   await copyPdfAssets(webDist);
   await fs.writeFile(
     path.join(webDist, "frozen-source.js"),
@@ -145,7 +146,14 @@ function buildWebIndexHtml() {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
-<title>Rabbithole</title>
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#FAFAF7">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#2C2C2A">
+<title>Clew</title>
+<link rel="icon" href="./favicon.svg" type="image/svg+xml">
+<link rel="icon" href="./favicon-32.png" sizes="32x32" type="image/png">
+<link rel="icon" href="./favicon-16.png" sizes="16x16" type="image/png">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="manifest" href="./site.webmanifest">
 <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
