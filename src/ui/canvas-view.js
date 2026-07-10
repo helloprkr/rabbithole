@@ -12,6 +12,9 @@ import {
   TREE_PARENT_GAP,
   TREE_STACK_GAP,
   boundsOverlap,
+  BRANCH_DEFINITION,
+  BRANCH_DOCUMENT,
+  BRANCH_NOTE,
   branchTypeOf,
   buildDocContent,
   canvasBuilt,
@@ -134,6 +137,23 @@ export function screenToWorld(sx, sy){ return { x: (sx - view.x) / view.scale, y
   var NODE_EXPAND_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none" aria-hidden="true"><path d="M9.25 3.75h3v3"/><path d="M12.25 3.75 8.75 7.25"/><path d="M6.75 12.25h-3v-3"/><path d="M3.75 12.25l3.5-3.5"/></svg>';
   var NODE_COLLAPSE_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none" aria-hidden="true"><path d="M3 8h10"/></svg>';
 
+  // The Clew mark, still: ◉ the wound ball with ⌇ the thread escaping — the
+  // root card wears it where the old bunny sat.
+  var NODE_CLEW_BADGE = '<svg width="15" height="13" viewBox="0 0 44 38" fill="none" focusable="false" aria-hidden="true">' +
+    '<circle cx="17" cy="19" r="12.5" stroke="currentColor" stroke-width="2.6"/>' +
+    '<path d="M6.6 14c6.6-5 14.2-5 20.8 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' +
+    '<path d="M5.4 21.8c7.7-3.9 15.5-3.9 23.2 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' +
+    '<path d="M9.4 28.9c5.6-2.6 9.6-2.6 15.2 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' +
+    '<path d="M29.5 19c3.4 0 3.2-3.4 6-3.4s2.6 3.4 5.6 3.4" stroke="#E24B4A" stroke-width="2" stroke-linecap="round"/>' +
+    '</svg>';
+
+  // The card's dress by node type: definitions are the member's own dictionary
+  // (small, quiet, local), notes are human words (no AI), documents are sources.
+  var NODE_KIND_META = {};
+  NODE_KIND_META[BRANCH_DEFINITION] = { cls: "node--definition", chip: "definition", chipTitle: "Your dictionary — only you see this card" };
+  NODE_KIND_META[BRANCH_NOTE] = { cls: "node--note", chip: "note", chipTitle: "A human note — no AI involved" };
+  NODE_KIND_META[BRANCH_DOCUMENT] = { cls: "node--document", chip: "document", chipTitle: "An attached source document" };
+
 export function createNodeEl(node, enter){
     var el = document.createElement("div");
     el.className = "node" + (node.id === rootId ? " root" : "");
@@ -143,9 +163,19 @@ export function createNodeEl(node, enter){
     var head = document.createElement("div");
     head.className = "node-head";
     if (node.id === rootId){
-      var badge = document.createElement("span"); badge.className = "node-badge"; badge.textContent = "🐇";
-      badge.title = "Where this Rabbithole begins";
+      var badge = document.createElement("span"); badge.className = "node-badge";
+      badge.innerHTML = NODE_CLEW_BADGE;
+      badge.title = "Where this Clew begins";
       head.appendChild(badge);
+    }
+    var kindMeta = node.id !== rootId ? NODE_KIND_META[branchTypeOf(node)] : null;
+    if (kindMeta){
+      el.classList.add(kindMeta.cls);
+      var kindChip = document.createElement("span");
+      kindChip.className = "node-kind";
+      kindChip.textContent = kindMeta.chip;
+      kindChip.title = kindMeta.chipTitle;
+      head.appendChild(kindChip);
     }
     // Author color (Warren patch 3): a merged team hole tints each card's left
     // border and prepends an author chip. No author → nothing added, so a personal
@@ -668,7 +698,9 @@ export function tidy(source){
       if (node.collapsed) return bounds;
 
       var kids = childrenOf(node.id).sort(nodeOrder);
-      var selectionKids = kids.filter(isSelectionBranch);
+      // Everything that isn't a follow-up (selections, definitions, notes,
+      // documents) stacks to the parent's right; follow-ups flow below.
+      var selectionKids = kids.filter(function(k){ return !isFollowup(k); });
       var followupKids = kids.filter(isFollowup);
       var sideBounds = null;
       var sideX = node.x + node.w + TREE_PARENT_GAP;

@@ -2,6 +2,13 @@ import { inheritedNodeBaseUrl } from "./base-url.js";
 
 export const BRANCH_SELECTION = "selection";
 export const BRANCH_FOLLOWUP = "followup";
+// Beyond ask-branches: attached documents, human-written notes, and per-member
+// definition lookups (⌘+select). All ride origin.branch_type — the node schema
+// itself is unchanged, so old holes and the hub round-trip them untouched.
+export const BRANCH_DOCUMENT = "document";
+export const BRANCH_NOTE = "note";
+export const BRANCH_DEFINITION = "definition";
+const BRANCH_TYPES = new Set([BRANCH_SELECTION, BRANCH_FOLLOWUP, BRANCH_DOCUMENT, BRANCH_NOTE, BRANCH_DEFINITION]);
 
 // The built-in four lenses — the fail-soft default whenever no config lens pack
 // is installed. Kept as an ordered list so both the button order and the
@@ -96,15 +103,23 @@ export function normalizeLens(lens) {
 
 export function normalizeBranchType(type, selectedText = "") {
   const key = String(type ?? "").trim();
-  if (key === BRANCH_SELECTION || key === BRANCH_FOLLOWUP) return key;
+  if (BRANCH_TYPES.has(key)) return key;
   return selectedText ? BRANCH_SELECTION : BRANCH_FOLLOWUP;
 }
 
 export function branchTypeOfNode(node) {
   if (!node || (!node.origin && !node.parent_id)) return null;
   const type = node.origin?.branch_type;
-  if (type === BRANCH_SELECTION || type === BRANCH_FOLLOWUP) return type;
+  if (BRANCH_TYPES.has(type)) return type;
   return node.origin?.selected_text ? BRANCH_SELECTION : BRANCH_FOLLOWUP;
+}
+
+// Local-only cards (definitions) live in their maker's browser: they are never
+// pushed to the team canvas, never merged, never published. (A pending clew-bound
+// stub still transits the hub inbox so the house answerer can fill it — the
+// merge and every client's ingest filter on this same flag.)
+export function isLocalOnlyNode(node) {
+  return node?.origin?.local === true;
 }
 
 export function normalizePosition(pos) {
@@ -156,14 +171,21 @@ export function createPendingBranchNode(payload, parent, { now = new Date().toIS
   const inheritedBase = inheritedNodeBaseUrl(parent);
   const nodeId = String(payload.node_id || "");
 
+  const title = synthesis ? "Synthesis"
+    : branchType === BRANCH_DEFINITION ? truncate(selectedText || question, 48)
+    : lens ? lensLabel(lens)
+    : question ? truncate(question, 48) : "…";
   return {
     id: nodeId,
     parent_id: String(payload.parent_id || ""),
-    title: synthesis ? "Synthesis" : lens ? lensLabel(lens) : question ? truncate(question, 48) : "…",
+    title,
     markdown: "",
     base_url: inheritedBase.base_url,
     base_url_source: inheritedBase.base_url_source,
-    origin: { selected_text: selectedText, question, lens, synthesis, anchor, branch_type: branchType },
+    origin: {
+      selected_text: selectedText, question, lens, synthesis, anchor, branch_type: branchType,
+      ...(payload.local === true ? { local: true } : {}),
+    },
     position: normalizePosition(payload.position),
     size: normalizeSize(payload.size),
     font_scale: 1,

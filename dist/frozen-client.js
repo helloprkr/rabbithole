@@ -1648,6 +1648,10 @@ var RabbitholeFrozenClient = (() => {
   // src/core/model.js
   var BRANCH_SELECTION = "selection";
   var BRANCH_FOLLOWUP = "followup";
+  var BRANCH_DOCUMENT = "document";
+  var BRANCH_NOTE = "note";
+  var BRANCH_DEFINITION = "definition";
+  var BRANCH_TYPES = /* @__PURE__ */ new Set([BRANCH_SELECTION, BRANCH_FOLLOWUP, BRANCH_DOCUMENT, BRANCH_NOTE, BRANCH_DEFINITION]);
   var BUILTIN_LENSES = [
     {
       id: "explain",
@@ -1706,7 +1710,7 @@ var RabbitholeFrozenClient = (() => {
     var _a2, _b;
     if (!node || !node.origin && !node.parent_id) return null;
     const type = (_a2 = node.origin) == null ? void 0 : _a2.branch_type;
-    if (type === BRANCH_SELECTION || type === BRANCH_FOLLOWUP) return type;
+    if (BRANCH_TYPES.has(type)) return type;
     return ((_b = node.origin) == null ? void 0 : _b.selected_text) ? BRANCH_SELECTION : BRANCH_FOLLOWUP;
   }
 
@@ -2049,9 +2053,6 @@ var RabbitholeFrozenClient = (() => {
   }
   function branchTypeOf(n) {
     return branchTypeOfNode(n);
-  }
-  function isSelectionBranch(n) {
-    return branchTypeOf(n) === BRANCH_SELECTION;
   }
   function isFollowup(n) {
     return branchTypeOf(n) === BRANCH_FOLLOWUP;
@@ -3001,6 +3002,11 @@ var RabbitholeFrozenClient = (() => {
   }
   var NODE_EXPAND_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none" aria-hidden="true"><path d="M9.25 3.75h3v3"/><path d="M12.25 3.75 8.75 7.25"/><path d="M6.75 12.25h-3v-3"/><path d="M3.75 12.25l3.5-3.5"/></svg>';
   var NODE_COLLAPSE_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none" aria-hidden="true"><path d="M3 8h10"/></svg>';
+  var NODE_CLEW_BADGE = '<svg width="15" height="13" viewBox="0 0 44 38" fill="none" focusable="false" aria-hidden="true"><circle cx="17" cy="19" r="12.5" stroke="currentColor" stroke-width="2.6"/><path d="M6.6 14c6.6-5 14.2-5 20.8 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M5.4 21.8c7.7-3.9 15.5-3.9 23.2 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M9.4 28.9c5.6-2.6 9.6-2.6 15.2 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M29.5 19c3.4 0 3.2-3.4 6-3.4s2.6 3.4 5.6 3.4" stroke="#E24B4A" stroke-width="2" stroke-linecap="round"/></svg>';
+  var NODE_KIND_META = {};
+  NODE_KIND_META[BRANCH_DEFINITION] = { cls: "node--definition", chip: "definition", chipTitle: "Your dictionary \u2014 only you see this card" };
+  NODE_KIND_META[BRANCH_NOTE] = { cls: "node--note", chip: "note", chipTitle: "A human note \u2014 no AI involved" };
+  NODE_KIND_META[BRANCH_DOCUMENT] = { cls: "node--document", chip: "document", chipTitle: "An attached source document" };
   function createNodeEl(node, enter) {
     var el = document.createElement("div");
     el.className = "node" + (node.id === rootId ? " root" : "");
@@ -3011,9 +3017,18 @@ var RabbitholeFrozenClient = (() => {
     if (node.id === rootId) {
       var badge = document.createElement("span");
       badge.className = "node-badge";
-      badge.textContent = "\u{1F407}";
-      badge.title = "Where this Rabbithole begins";
+      badge.innerHTML = NODE_CLEW_BADGE;
+      badge.title = "Where this Clew begins";
       head.appendChild(badge);
+    }
+    var kindMeta = node.id !== rootId ? NODE_KIND_META[branchTypeOf(node)] : null;
+    if (kindMeta) {
+      el.classList.add(kindMeta.cls);
+      var kindChip = document.createElement("span");
+      kindChip.className = "node-kind";
+      kindChip.textContent = kindMeta.chip;
+      kindChip.title = kindMeta.chipTitle;
+      head.appendChild(kindChip);
     }
     var authorInfo = authorChipFor(node);
     if (authorInfo) {
@@ -3717,7 +3732,9 @@ var RabbitholeFrozenClient = (() => {
       var bounds = nodeBounds2(node);
       if (node.collapsed) return bounds;
       var kids = childrenOf(node.id).sort(nodeOrder2);
-      var selectionKids = kids.filter(isSelectionBranch);
+      var selectionKids = kids.filter(function(k) {
+        return !isFollowup(k);
+      });
       var followupKids = kids.filter(isFollowup);
       var sideBounds = null;
       var sideX = node.x + node.w + TREE_PARENT_GAP;
@@ -3785,1461 +3802,6 @@ var RabbitholeFrozenClient = (() => {
     } else {
       openNode(currentNodeId);
     }
-  }
-
-  // src/ui/ask-followups.js
-  var askHooks = {
-    post: function() {
-      return Promise.resolve({ ok: true });
-    },
-    closeShare: function() {
-    },
-    hideConfirm: function() {
-    },
-    hidePeek: function() {
-    },
-    // Optional: attach a document (pdf/md) as a branch of the current selection.
-    // Only the /app web workspace wires this; absent → the button never shows.
-    attach: null
-  };
-  function registerAskHooks(hooks) {
-    Object.assign(askHooks, hooks || {});
-    var row = document.getElementById("ask-attach-row");
-    if (row) row.classList.toggle("available", typeof askHooks.attach === "function");
-  }
-  function initAskFollowups() {
-    document.addEventListener("mousedown", function(e) {
-      var c2 = e.target && e.target.closest ? function(sel) {
-        return e.target.closest(sel);
-      } : function() {
-        return null;
-      };
-      if (!c2("#sharemenu") && !c2("#r-share") && !c2("#t-share")) askHooks.closeShare();
-      if (!c2("#confirm")) askHooks.hideConfirm();
-      if (!c2("#peek") && !c2("mark[data-child]")) askHooks.hidePeek();
-      if (inAsk(e)) return;
-      hideAsk();
-    });
-    document.addEventListener("mouseup", function(e) {
-      if (inAsk(e)) return;
-      setTimeout(maybeShowAsk, 0);
-    });
-    askGo.addEventListener("click", function(e) {
-      submitAsk(null, motionSourceFromEvent(e));
-    });
-    renderLensButtons();
-    document.getElementById("ask-lenses").addEventListener("click", function(e) {
-      var b = e.target.closest ? e.target.closest(".lens") : null;
-      if (b) submitAsk(b.getAttribute("data-lens"), motionSourceFromEvent(e));
-    });
-    var attachBtn = document.getElementById("ask-attach");
-    if (attachBtn) attachBtn.addEventListener("click", function(e) {
-      e.preventDefault();
-      if (!pendingAsk || typeof askHooks.attach !== "function") return;
-      var req = {
-        parentId: pendingAsk.parentId,
-        selectedText: pendingAsk.selectedText,
-        anchor: { offset_start: pendingAsk.startOff, offset_end: pendingAsk.endOff }
-      };
-      hideAsk();
-      askHooks.attach(req);
-    });
-    askText.addEventListener("input", function() {
-      autoGrowEl(askText, 110);
-    });
-    askText.addEventListener("keydown", onAskTextKeydown);
-    composerText.addEventListener("input", function() {
-      autoGrowComposer();
-      updateComposerState();
-    });
-    composerText.addEventListener("keydown", function(e) {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        submitFollowup("keyboard");
-      }
-    });
-    composerSend.addEventListener("click", function(e) {
-      submitFollowup(motionSourceFromEvent(e));
-    });
-    readerMain.addEventListener("wheel", interruptScrollAnimation, { passive: true });
-    readerMain.addEventListener("touchstart", interruptScrollAnimation, { passive: true });
-    readerMain.addEventListener("pointerdown", interruptScrollAnimation, { passive: true });
-    readerMain.addEventListener("scroll", function() {
-      if (performance.now() > scrollAnimIgnoreUntil) cancelScrollAnimation();
-    }, { passive: true });
-    document.addEventListener("keydown", interruptScrollAnimation);
-  }
-  function inAsk(e) {
-    return e.target && e.target.closest && e.target.closest("#ask");
-  }
-  function renderLensButtons() {
-    var box = document.getElementById("ask-lenses");
-    if (!box) return;
-    var html2 = "";
-    for (var i2 = 0; i2 < LENS_ORDER.length; i2++) {
-      var id = LENS_ORDER[i2];
-      var kbd = i2 < 9 ? " <kbd>" + (i2 + 1) + "</kbd>" : "";
-      html2 += '<button class="lens" data-lens="' + esc(id) + '">' + esc(lensLabel2(id)) + kbd + "</button>";
-    }
-    box.innerHTML = html2;
-  }
-  function maybeShowAsk() {
-    var sel = window.getSelection();
-    if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
-    var anchor = sel.anchorNode && sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentNode : sel.anchorNode;
-    var dc = anchor && anchor.closest ? anchor.closest(".doc-content") : null;
-    if (!dc) return;
-    var parentId = dc.dataset.nodeId;
-    if (!parentId || !nodes[parentId] || nodes[parentId].status === "pending") return;
-    if (closed) {
-      flashHint(frozen ? "This is a read-only snapshot \u2014 asking needs the live Rabbithole." : "Session ended \u2014 reopen this Rabbithole from your terminal to keep asking.");
-      return;
-    }
-    var range = sel.getRangeAt(0);
-    if (!dc.contains(range.startContainer) || !dc.contains(range.endContainer)) return;
-    var startOff = charOffset(dc, range.startContainer, range.startOffset);
-    var endOff = charOffset(dc, range.endContainer, range.endOffset);
-    if (endOff <= startOff) return;
-    pendingAsk = {
-      parentId,
-      container: dc,
-      selectedText: sel.toString().trim(),
-      startOff,
-      endOff,
-      range: range.cloneRange()
-    };
-    paintAskHighlight(pendingAsk.range);
-    askText.value = "";
-    askText.placeholder = "Ask about this\u2026";
-    var rect = range.getBoundingClientRect();
-    ask.style.left = Math.min(window.innerWidth - 392, Math.max(10, rect.left)) + "px";
-    ask.style.top = Math.min(window.innerHeight - 200, rect.bottom + 8) + "px";
-    ask.classList.add("visible");
-    setSurfaceOrigin(ask, rect);
-    autoGrowEl(askText, 110);
-    askText.focus();
-  }
-  var pendingAsk = null;
-  function hideAsk() {
-    ask.classList.remove("visible");
-    pendingAsk = null;
-    clearAskHighlight();
-  }
-  function paintAskHighlight(range) {
-    try {
-      if (window.Highlight && window.CSS && CSS.highlights) CSS.highlights.set("rh-ask", new Highlight(range));
-    } catch (e) {
-    }
-  }
-  function clearAskHighlight() {
-    try {
-      if (window.CSS && CSS.highlights) CSS.highlights.delete("rh-ask");
-    } catch (e) {
-    }
-  }
-  function lensForDigit(key) {
-    var i2 = /^[1-9]$/.test(key) ? parseInt(key, 10) : 0;
-    return i2 && i2 <= LENS_ORDER.length ? LENS_ORDER[i2 - 1] : null;
-  }
-  function onAskTextKeydown(e) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      submitAsk(null, "keyboard");
-    } else if (e.key === "Escape") {
-      hideAsk();
-    } else if (askText.value === "" && !e.metaKey && !e.ctrlKey && !e.altKey && lensForDigit(e.key)) {
-      e.preventDefault();
-      submitAsk(lensForDigit(e.key), "keyboard");
-    }
-  }
-  function submitAsk(lensKey, source2) {
-    if (!pendingAsk || closed) return;
-    var parent = nodes[pendingAsk.parentId];
-    if (!parent) {
-      hideAsk();
-      return;
-    }
-    var lens = lensKey && LENSES[lensKey] ? lensKey : null;
-    var question = lens ? LENSES[lens].q : askText.value.trim();
-    var requestId = uuid(), childId = uuid();
-    var pos = placeChild2(parent, BRANCH_SELECTION);
-    var anchor = { offset_start: pendingAsk.startOff, offset_end: pendingAsk.endOff };
-    var node = {
-      id: childId,
-      parent_id: parent.id,
-      title: lens ? lensLabel2(lens) : question ? truncate2(question, 48) : "\u2026",
-      html: "",
-      md: "",
-      base_url: parent.base_url || null,
-      base_url_source: parent.base_url ? "inherited" : null,
-      read: false,
-      origin: {
-        selected_text: pendingAsk.selectedText,
-        question,
-        lens,
-        anchor,
-        branch_type: BRANCH_SELECTION,
-        author: selfAuthor || void 0
-      },
-      x: pos.x,
-      y: pos.y,
-      w: DEFAULT_CHILD.w,
-      h: DEFAULT_CHILD.h,
-      font_scale: 1,
-      collapsed: false,
-      status: "pending",
-      _order: nextOrder(),
-      _startTs: Date.now()
-    };
-    nodes[childId] = node;
-    if (canvasBuilt) {
-      createNodeEl(node, true);
-      renderVisibility();
-      drawEdges();
-    }
-    if (mode === "reader") {
-      var rdc = readerMain.querySelector('.doc-content[data-node-id="' + parent.id + '"]');
-      wrapInContainer(rdc, anchor, childId, "hl mark-pending");
-      if (currentNodeId === parent.id) renderSidebar();
-    }
-    if (parent.bodyEl) {
-      wrapInContainer(parent.bodyEl.querySelector(".doc-content"), anchor, childId, "hl mark-pending");
-      scheduleEdges();
-    }
-    var sel = window.getSelection();
-    if (sel) sel.removeAllRanges();
-    hideAsk();
-    askHooks.post({
-      type: "branch_request",
-      request_id: requestId,
-      node_id: childId,
-      parent_id: parent.id,
-      selected_text: node.origin.selected_text,
-      question,
-      lens,
-      anchor,
-      branch_type: BRANCH_SELECTION,
-      position: { x: node.x, y: node.y },
-      size: { w: node.w, h: node.h }
-    }).then(function(res) {
-      if (!res || !res.ok) rollbackBranch(node);
-    });
-    revealNode(node, source2);
-    refreshAmbient();
-  }
-  function updateComposerState() {
-    var current = nodes[currentNodeId];
-    var down = closed || !current || current.status === "pending";
-    composerText.disabled = down;
-    composerInner.classList.toggle("disabled", down);
-    if (frozen) composerText.placeholder = "Read-only snapshot \u2014 open the live Rabbithole to keep asking";
-    else if (closed) composerText.placeholder = "Session ended \u2014 reopen this Rabbithole from your terminal; saved questions are answered there";
-    else if (current && current.status === "pending") composerText.placeholder = "This answer is still being written\u2026";
-    else if (connLost || !agentAttached) composerText.placeholder = "The agent is away \u2014 questions are saved and answered when it returns\u2026";
-    else composerText.placeholder = "Ask a follow-up about this document\u2026";
-    composerSend.disabled = down || !composerText.value.trim();
-  }
-  function autoGrowComposer() {
-    autoGrowEl(composerText, 140);
-  }
-  function sendFollowup(parent, question, lens, synthesis) {
-    var requestId = uuid(), childId = uuid();
-    var pos = placeChild2(parent, BRANCH_FOLLOWUP);
-    var node = {
-      id: childId,
-      parent_id: parent.id,
-      title: synthesis ? "Synthesis" : lens ? lensLabel2(lens) : truncate2(question, 48),
-      html: "",
-      md: "",
-      base_url: parent.base_url || null,
-      base_url_source: parent.base_url ? "inherited" : null,
-      read: false,
-      origin: {
-        selected_text: "",
-        question,
-        lens,
-        synthesis: !!synthesis,
-        anchor: null,
-        branch_type: BRANCH_FOLLOWUP,
-        author: selfAuthor || void 0
-      },
-      x: pos.x,
-      y: pos.y,
-      w: DEFAULT_CHILD.w,
-      h: DEFAULT_CHILD.h,
-      font_scale: 1,
-      collapsed: false,
-      status: "pending",
-      _order: nextOrder(),
-      _startTs: Date.now()
-    };
-    nodes[childId] = node;
-    if (canvasBuilt) {
-      createNodeEl(node, true);
-      renderVisibility();
-      drawEdges();
-    }
-    if (currentNodeId === parent.id && mode === "reader") {
-      if (synthesis) renderSidebar();
-      else {
-        var t = ensureThread();
-        if (t) t.appendChild(buildThreadItem(node));
-      }
-    }
-    var payload = {
-      type: "branch_request",
-      request_id: requestId,
-      node_id: childId,
-      parent_id: parent.id,
-      selected_text: "",
-      question,
-      lens,
-      anchor: null,
-      branch_type: BRANCH_FOLLOWUP,
-      position: { x: node.x, y: node.y },
-      size: { w: node.w, h: node.h }
-    };
-    if (synthesis) payload.synthesis = true;
-    askHooks.post(payload).then(function(res) {
-      if (!res || !res.ok) rollbackBranch(node);
-    });
-    refreshAmbient();
-    return node;
-  }
-  var scrollAnimId = 0;
-  var scrollAnimIgnoreUntil = 0;
-  function cancelScrollAnimation() {
-    scrollAnimId++;
-  }
-  function setAnimatedScrollTop(el, value) {
-    scrollAnimIgnoreUntil = performance.now() + 80;
-    el.scrollTop = value;
-  }
-  function animateScroll(el, target, source2) {
-    var myId = ++scrollAnimId;
-    if (document.hidden || shouldReduceMotion() || source2 !== "pointer") {
-      el.scrollTop = target;
-      return;
-    }
-    var s = el.scrollTop, t0 = performance.now(), D2 = 240;
-    function step(t) {
-      if (myId !== scrollAnimId) return;
-      var p = Math.min(1, (t - t0) / D2), k = easeOutMotion(p);
-      setAnimatedScrollTop(el, s + (target - s) * k);
-      if (p < 1) requestAnimationFrame(step);
-    }
-    requestAnimationFrame(step);
-  }
-  function interruptScrollAnimation() {
-    cancelScrollAnimation();
-  }
-  function submitFollowup(source2) {
-    if (closed) {
-      flashHint(frozen ? "This is a read-only snapshot." : "Session ended \u2014 reopen this Rabbithole from your terminal to continue.");
-      return;
-    }
-    var parent = nodes[currentNodeId];
-    if (!parent || parent.status === "pending") return;
-    var question = composerText.value.trim();
-    if (!question) return;
-    sendFollowup(parent, question, null);
-    composerText.value = "";
-    autoGrowComposer();
-    updateComposerState();
-    animateScroll(readerMain, readerMain.scrollHeight, source2);
-  }
-  function rollbackBranch(node) {
-    var live = nodes[node.id];
-    if (!live || live.status === "answered") return;
-    delete nodes[node.id];
-    if (node.el && node.el.parentNode) node.el.parentNode.removeChild(node.el);
-    removeMarks(readerMain, node.id);
-    removeThreadItem(node.id);
-    var p = nodes[node.parent_id];
-    if (p && p.bodyEl) removeMarks(p.bodyEl, node.id);
-    if (canvasBuilt) drawEdges();
-    if (mode === "reader" && currentNodeId === node.parent_id) renderSidebar();
-    refreshAmbient();
-    flashHint("Couldn't reach the agent \u2014 that ask was undone.");
-  }
-  function placeChild2(parent, branchType) {
-    return placeChild(parent, branchType, {
-      childrenOf,
-      effH,
-      sort: nodeOrder2,
-      childSize: DEFAULT_CHILD
-    });
-  }
-
-  // src/ui/focus-trap.js
-  var FOCUSABLE = [
-    "a[href]",
-    "button:not([disabled])",
-    "textarea:not([disabled])",
-    "input:not([disabled])",
-    "select:not([disabled])",
-    "[tabindex]:not([tabindex='-1'])"
-  ].join(",");
-  function activateFocusTrap(root, options2) {
-    if (!root) return function() {
-    };
-    options2 = options2 || {};
-    var previous = document.activeElement;
-    if (!root.hasAttribute("tabindex")) root.setAttribute("tabindex", "-1");
-    function focusables() {
-      var all = root.querySelectorAll ? Array.prototype.slice.call(root.querySelectorAll(FOCUSABLE)) : [];
-      return all.filter(function(el) {
-        return el.offsetParent !== null || el === document.activeElement || el === options2.initialFocus;
-      });
-    }
-    function focusInitial() {
-      var target = options2.initialFocus || focusables()[0] || root;
-      try {
-        target.focus({ preventScroll: true });
-      } catch (e) {
-        try {
-          target.focus();
-        } catch (_e) {
-        }
-      }
-    }
-    function onKeydown(e) {
-      if (e.key === "Escape" && typeof options2.onEscape === "function") {
-        e.preventDefault();
-        e.stopPropagation();
-        options2.onEscape(e);
-        return;
-      }
-      if (e.key !== "Tab") return;
-      var items = focusables();
-      if (!items.length) {
-        e.preventDefault();
-        root.focus();
-        return;
-      }
-      var first = items[0];
-      var last = items[items.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-    document.addEventListener("keydown", onKeydown, true);
-    setTimeout(focusInitial, 0);
-    return function deactivateFocusTrap() {
-      document.removeEventListener("keydown", onKeydown, true);
-      if (options2.restoreFocus !== false && previous && previous.focus) {
-        try {
-          previous.focus({ preventScroll: true });
-        } catch (e) {
-          try {
-            previous.focus();
-          } catch (_e) {
-          }
-        }
-      }
-    };
-  }
-
-  // src/ui/image-ux.js
-  var imageResizeMemory = {};
-  var activeLightbox = null;
-  var IMAGE_MIN_WIDTH = 120;
-  var LIGHTBOX_MIN_ZOOM = 0.25;
-  var LIGHTBOX_MAX_ZOOM = 6;
-  function imageSurfaceScale(dc) {
-    if (!dc || !dc.offsetWidth) return 1;
-    var rect = dc.getBoundingClientRect();
-    return rect.width ? rect.width / dc.offsetWidth : 1;
-  }
-  function imageMemoryKey(dc, img, index, surfaceKey) {
-    var nodeId = dc && dc.dataset && dc.dataset.nodeId || "doc";
-    return String(surfaceKey || "surface") + ":" + nodeId + ":" + index + ":" + (img.getAttribute("src") || "");
-  }
-  function clampImageWidth(dc, value) {
-    var max = Math.max(IMAGE_MIN_WIDTH, dc ? dc.clientWidth : IMAGE_MIN_WIDTH);
-    return Math.max(IMAGE_MIN_WIDTH, Math.min(max, value));
-  }
-  function nearestImageScrollContainer(el) {
-    var cur = el ? el.parentElement : null;
-    while (cur && cur !== document.body && cur !== document.documentElement) {
-      var style = window.getComputedStyle(cur);
-      var oy = style.overflowY;
-      if ((oy === "auto" || oy === "scroll" || oy === "overlay") && cur.scrollHeight > cur.clientHeight + 1) return cur;
-      cur = cur.parentElement;
-    }
-    return document.scrollingElement || document.documentElement;
-  }
-  function imageScrollScale(scroller) {
-    if (!scroller || !scroller.offsetHeight) return 1;
-    var rect = scroller.getBoundingClientRect();
-    return rect.height ? rect.height / scroller.offsetHeight : 1;
-  }
-  function keepImageHandleAnchored(scroller, beforeRect, afterRect) {
-    if (!scroller || !beforeRect || !afterRect) return;
-    var delta = afterRect.bottom - beforeRect.bottom;
-    if (!delta) return;
-    scroller.scrollTop += delta / imageScrollScale(scroller);
-  }
-  function applyImageWidth(frame, width) {
-    frame.style.width = Math.round(width) + "px";
-    frame.dataset.rhResized = "1";
-  }
-  function resetImageWidth(frame, key) {
-    frame.style.width = "";
-    delete frame.dataset.rhResized;
-    if (key) delete imageResizeMemory[key];
-  }
-  function beginImageResize(e, dc, frame, key) {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    hideAsk();
-    var scale = imageSurfaceScale(dc);
-    var startX = e.clientX;
-    var startW = frame.getBoundingClientRect().width / scale;
-    var scroller = nearestImageScrollContainer(frame);
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch (_e) {
-    }
-    function move(ev) {
-      ev.preventDefault();
-      ev.stopPropagation();
-      var next = clampImageWidth(dc, startW + (ev.clientX - startX) / scale);
-      var before = frame.getBoundingClientRect();
-      applyImageWidth(frame, next);
-      keepImageHandleAnchored(scroller, before, frame.getBoundingClientRect());
-      imageResizeMemory[key] = next;
-      scheduleEdges();
-    }
-    function done(ev) {
-      if (ev) ev.stopPropagation();
-      window.removeEventListener("pointermove", move, true);
-      window.removeEventListener("pointerup", done, true);
-      window.removeEventListener("pointercancel", done, true);
-      try {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      } catch (_e) {
-      }
-      scheduleEdges();
-    }
-    window.addEventListener("pointermove", move, true);
-    window.addEventListener("pointerup", done, true);
-    window.addEventListener("pointercancel", done, true);
-  }
-  function setLightboxTransform(img, state) {
-    img.style.setProperty("--rh-zoom", state.scale);
-    img.style.setProperty("--rh-pan-x", Math.round(state.x) + "px");
-    img.style.setProperty("--rh-pan-y", Math.round(state.y) + "px");
-  }
-  function clampLightboxZoom(value) {
-    return Math.max(LIGHTBOX_MIN_ZOOM, Math.min(LIGHTBOX_MAX_ZOOM, value));
-  }
-  function pointerDistance(a, b) {
-    var dx = a.clientX - b.clientX;
-    var dy = a.clientY - b.clientY;
-    return Math.sqrt(dx * dx + dy * dy);
-  }
-  function openImageLightbox(src, alt) {
-    closeImageLightbox();
-    var overlay = document.createElement("div");
-    overlay.className = "rh-lightbox";
-    overlay.setAttribute("role", "dialog");
-    overlay.setAttribute("aria-modal", "true");
-    overlay.setAttribute("aria-label", alt || "Image preview");
-    overlay.setAttribute("tabindex", "-1");
-    var img = document.createElement("img");
-    img.className = "rh-lightbox-img";
-    img.src = src;
-    img.alt = alt || "";
-    img.draggable = false;
-    overlay.appendChild(img);
-    document.body.appendChild(overlay);
-    var state = { scale: 1, x: 0, y: 0 };
-    var drag = null;
-    var pointers = {};
-    var pinch = null;
-    setLightboxTransform(img, state);
-    var trap = activateFocusTrap(overlay, { initialFocus: overlay, onEscape: closeImageLightbox });
-    activeLightbox = { el: overlay, key: onKey, trap };
-    function onKey(e) {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      e.stopPropagation();
-      closeImageLightbox();
-    }
-    function clearPointer(id) {
-      delete pointers[id];
-      var keys = Object.keys(pointers);
-      if (keys.length < 2) pinch = null;
-      if (!keys.length) drag = null;
-    }
-    overlay.addEventListener("click", function(e) {
-      if (e.target === overlay) closeImageLightbox();
-    });
-    overlay.addEventListener("wheel", function(e) {
-      e.preventDefault();
-      e.stopPropagation();
-      var next = clampLightboxZoom(state.scale * (e.deltaY < 0 ? 1.12 : 0.88));
-      state.scale = next;
-      if (state.scale <= 1) {
-        state.x = 0;
-        state.y = 0;
-      }
-      setLightboxTransform(img, state);
-    }, { passive: false });
-    overlay.addEventListener("pointerdown", function(e) {
-      e.preventDefault();
-      e.stopPropagation();
-      pointers[e.pointerId] = { clientX: e.clientX, clientY: e.clientY };
-      try {
-        overlay.setPointerCapture(e.pointerId);
-      } catch (_e) {
-      }
-      var ids = Object.keys(pointers);
-      if (ids.length >= 2) {
-        pinch = { dist: pointerDistance(pointers[ids[0]], pointers[ids[1]]), scale: state.scale };
-        drag = null;
-      } else if (e.target === img && state.scale > 1) {
-        drag = { x: e.clientX, y: e.clientY, ox: state.x, oy: state.y };
-      }
-    });
-    overlay.addEventListener("pointermove", function(e) {
-      if (!pointers[e.pointerId]) return;
-      e.preventDefault();
-      e.stopPropagation();
-      pointers[e.pointerId] = { clientX: e.clientX, clientY: e.clientY };
-      var ids = Object.keys(pointers);
-      if (pinch && ids.length >= 2) {
-        var dist = pointerDistance(pointers[ids[0]], pointers[ids[1]]);
-        if (pinch.dist > 0) state.scale = clampLightboxZoom(pinch.scale * dist / pinch.dist);
-        if (state.scale <= 1) {
-          state.x = 0;
-          state.y = 0;
-        }
-        setLightboxTransform(img, state);
-      } else if (drag && state.scale > 1) {
-        state.x = drag.ox + e.clientX - drag.x;
-        state.y = drag.oy + e.clientY - drag.y;
-        setLightboxTransform(img, state);
-      }
-    });
-    overlay.addEventListener("pointerup", function(e) {
-      clearPointer(e.pointerId);
-    });
-    overlay.addEventListener("pointercancel", function(e) {
-      clearPointer(e.pointerId);
-    });
-    document.addEventListener("keydown", onKey, true);
-  }
-  function closeImageLightbox() {
-    if (!activeLightbox) return;
-    document.removeEventListener("keydown", activeLightbox.key, true);
-    if (typeof activeLightbox.trap === "function") activeLightbox.trap();
-    if (activeLightbox.el && activeLightbox.el.parentNode) activeLightbox.el.parentNode.removeChild(activeLightbox.el);
-    activeLightbox = null;
-  }
-  function mountDocImages(dc, node, base, surfaceKey) {
-    if (!dc || !dc.querySelectorAll) return;
-    var imgs = dc.querySelectorAll("img");
-    for (var i2 = 0; i2 < imgs.length; i2++) {
-      var img = imgs[i2];
-      if (img.dataset.rhImgReady === "1") continue;
-      if (img.closest(".viz, .viz-mounted")) continue;
-      var frame = img.parentNode && img.parentNode.classList && img.parentNode.classList.contains("rh-img-frame") ? img.parentNode : null;
-      if (!frame) {
-        frame = document.createElement("span");
-        frame.className = "rh-img-frame";
-        img.parentNode.insertBefore(frame, img);
-        frame.appendChild(img);
-      }
-      var key = imageMemoryKey(dc, img, i2, surfaceKey || visualSurfaceKey(node, base));
-      img.dataset.rhImgReady = "1";
-      img.draggable = false;
-      if (imageResizeMemory[key]) applyImageWidth(frame, imageResizeMemory[key]);
-      var handle = document.createElement("button");
-      handle.type = "button";
-      handle.className = "rh-img-handle";
-      handle.setAttribute("aria-label", "Resize image");
-      handle.title = "Drag to resize \xB7 double-click to reset";
-      frame.appendChild(handle);
-      frame.addEventListener("pointerdown", function(e) {
-        e.stopPropagation();
-      });
-      img.addEventListener("click", function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        openImageLightbox(e.currentTarget.currentSrc || e.currentTarget.src, e.currentTarget.alt);
-      });
-      handle.addEventListener("pointerdown", /* @__PURE__ */ (function(f, k) {
-        return function(e) {
-          beginImageResize(e, dc, f, k);
-        };
-      })(frame, key));
-      handle.addEventListener("dblclick", /* @__PURE__ */ (function(f, k) {
-        return function(e) {
-          e.preventDefault();
-          e.stopPropagation();
-          var scroller = nearestImageScrollContainer(f);
-          var before = f.getBoundingClientRect();
-          resetImageWidth(f, k);
-          keepImageHandleAnchored(scroller, before, f.getBoundingClientRect());
-          scheduleEdges();
-        };
-      })(frame, key));
-    }
-  }
-
-  // src/ui/palette.js
-  var paletteHooks = {
-    hideAsk: function() {
-    },
-    hidePeek: function() {
-    },
-    closeShare: function() {
-    },
-    hideConfirm: function() {
-    }
-  };
-  function registerPaletteHooks(hooks) {
-    Object.assign(paletteHooks, hooks || {});
-  }
-  function getPlain(node) {
-    if (node._plainFor !== node.html) {
-      var d = document.createElement("div");
-      d.innerHTML = node.html || "";
-      node._plainFor = node.html;
-      node._plain = d.textContent || "";
-    }
-    return node._plain || "";
-  }
-  var palOpen = false;
-  var palSel = 0;
-  var palItems = [];
-  var palCanvasCommands = false;
-  var palTrap = null;
-  function initPalette() {
-    paletteEl.addEventListener("mousedown", function(e) {
-      if (e.target === paletteEl) closePalette();
-    });
-    palText.addEventListener("input", function() {
-      renderPalette(palText.value);
-    });
-    palText.addEventListener("keydown", onPaletteKeydown);
-    palResults.addEventListener("click", onPaletteClick);
-    palResults.addEventListener("mousemove", onPaletteMousemove);
-  }
-  function togglePalette() {
-    if (palOpen) closePalette();
-    else openPalette();
-  }
-  function openPalette() {
-    palOpen = true;
-    palCanvasCommands = mode === "canvas";
-    paletteHooks.hideAsk();
-    paletteHooks.hidePeek();
-    paletteHooks.closeShare();
-    paletteHooks.hideConfirm();
-    paletteEl.classList.add("visible");
-    palText.value = "";
-    renderPalette("");
-    if (palTrap) palTrap();
-    palTrap = activateFocusTrap(paletteEl, { initialFocus: palText, onEscape: closePalette });
-  }
-  function closePalette() {
-    palOpen = false;
-    palCanvasCommands = false;
-    paletteEl.classList.remove("visible");
-    if (palTrap) {
-      palTrap();
-      palTrap = null;
-    }
-    palText.blur();
-  }
-  function onPaletteKeydown(e) {
-    if (e.key === "Escape") {
-      e.stopPropagation();
-      closePalette();
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      movePalSel(1);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      movePalSel(-1);
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      commitPal("keyboard");
-    }
-  }
-  function renderPalette(q) {
-    var tokens = q.toLowerCase().split(/\s+/).filter(function(t2) {
-      return !!t2;
-    });
-    var scored = [];
-    for (var id in nodes) {
-      var n = nodes[id];
-      var title = (n.title || "").toLowerCase();
-      var ask2 = ((n.origin && n.origin.selected_text || "") + " " + (n.origin && n.origin.question || "")).toLowerCase();
-      var body = getPlain(n).toLowerCase();
-      var score = 0, ok = true;
-      for (var i2 = 0; i2 < tokens.length; i2++) {
-        var t = tokens[i2];
-        if (title.indexOf(t) !== -1) score += title.indexOf(t) === 0 ? 40 : 30;
-        else if (ask2.indexOf(t) !== -1) score += 15;
-        else if (body.indexOf(t) !== -1) score += 5;
-        else {
-          ok = false;
-          break;
-        }
-      }
-      if (!ok) continue;
-      scored.push({ n, score });
-    }
-    scored.sort(function(a, b) {
-      return b.score - a.score || (b.n._order || 0) - (a.n._order || 0);
-    });
-    scored = scored.slice(0, 12);
-    palItems = scored.map(function(s) {
-      return { type: "node", id: s.n.id };
-    }).concat(paletteCommandItems(tokens));
-    palSel = 0;
-    if (!palItems.length) {
-      palResults.innerHTML = tokens.length ? '<div class="pal-empty">Nothing in this hole matches that.</div>' : "";
-      return;
-    }
-    var html2 = "";
-    palItems.forEach(function(item, i3) {
-      if (item.type === "command") {
-        html2 += '<div class="pal-item pal-command' + (i3 === palSel ? " sel" : "") + '" data-idx="' + i3 + '">';
-        html2 += '<div class="pal-t"><span class="pal-title">' + esc(item.name) + '</span><kbd class="pal-kbd">' + esc(item.kbd) + "</kbd></div>";
-        html2 += "</div>";
-        return;
-      }
-      var n2 = nodes[item.id];
-      if (!n2) return;
-      var badge = n2.origin && n2.origin.synthesis ? '<span class="lens-badge">\u2726 Synthesis</span>' : n2.origin && n2.origin.lens ? lensBadgeHtml(n2.origin.lens) : "";
-      var flags = n2.status === "pending" ? '<span class="pal-writing">writing\u2026</span>' : isUnread(n2) ? '<span class="pal-dot"></span>' : "";
-      html2 += '<div class="pal-item' + (i3 === palSel ? " sel" : "") + '" data-idx="' + i3 + '">';
-      html2 += '<div class="pal-t">' + flags + '<span class="pal-title">' + esc(n2.title || "Untitled") + "</span>" + badge + "</div>";
-      html2 += '<div class="pal-s">' + palSnippet(n2, tokens) + "</div>";
-      html2 += "</div>";
-    });
-    palResults.innerHTML = html2;
-  }
-  function paletteCommandItems(tokens) {
-    if (!palCanvasCommands) return [];
-    var commands = [
-      { type: "command", name: "Frame everything", kbd: "F", run: function() {
-        frameAll(true, "keyboard");
-      } },
-      { type: "command", name: "Tidy up layout", kbd: "T", run: function() {
-        tidy("keyboard");
-      } }
-    ];
-    var out = [];
-    for (var i2 = 0; i2 < commands.length; i2++) {
-      var c2 = commands[i2];
-      var name = c2.name.toLowerCase();
-      var ok = true;
-      for (var t = 0; t < tokens.length; t++) {
-        if (name.indexOf(tokens[t]) === -1) {
-          ok = false;
-          break;
-        }
-      }
-      if (ok) out.push(c2);
-    }
-    return out;
-  }
-  function palSnippet(n, tokens) {
-    var body = getPlain(n);
-    var lower = body.toLowerCase();
-    for (var i2 = 0; i2 < tokens.length; i2++) {
-      var at = lower.indexOf(tokens[i2]);
-      if (at !== -1) {
-        var start = Math.max(0, at - 34);
-        var slice = (start > 0 ? "\u2026" : "") + body.slice(start, start + 120);
-        return hiTokens(slice, tokens);
-      }
-    }
-    var quote = n.origin && n.origin.selected_text;
-    if (quote) return "\u201C" + hiTokens(truncate2(quote, 90), tokens) + "\u201D";
-    var q = n.origin && n.origin.question;
-    if (q) return hiTokens(truncate2(q, 100), tokens);
-    return esc(truncate2(body, 100));
-  }
-  function hiTokens(text2, tokens) {
-    if (!tokens.length) return esc(text2);
-    var lower = text2.toLowerCase(), out = "", i2 = 0;
-    while (i2 < text2.length) {
-      var best = -1, bl = 0;
-      for (var t = 0; t < tokens.length; t++) {
-        var at = lower.indexOf(tokens[t], i2);
-        if (at !== -1 && (best === -1 || at < best)) {
-          best = at;
-          bl = tokens[t].length;
-        }
-      }
-      if (best === -1) {
-        out += esc(text2.slice(i2));
-        break;
-      }
-      out += esc(text2.slice(i2, best)) + "<mark>" + esc(text2.slice(best, best + bl)) + "</mark>";
-      i2 = best + bl;
-    }
-    return out;
-  }
-  function movePalSel(delta) {
-    if (!palItems.length) return;
-    palSel = Math.max(0, Math.min(palItems.length - 1, palSel + delta));
-    var items = palResults.querySelectorAll(".pal-item");
-    for (var i2 = 0; i2 < items.length; i2++) items[i2].classList.toggle("sel", i2 === palSel);
-    if (items[palSel]) items[palSel].scrollIntoView({ block: "nearest" });
-  }
-  function commitPal(source2) {
-    var item = palItems[palSel];
-    if (!item) return;
-    if (item.type === "command") {
-      item.run();
-      closePalette();
-      return;
-    }
-    var node = nodes[item.id];
-    closePalette();
-    if (node) goToNode2(node, source2);
-  }
-  function onPaletteClick(e) {
-    var it = e.target.closest(".pal-item");
-    if (!it) return;
-    palSel = Number(it.dataset.idx) || 0;
-    commitPal(motionSourceFromEvent(e));
-  }
-  function onPaletteMousemove(e) {
-    var it = e.target.closest(".pal-item");
-    if (!it) return;
-    var idx = Number(it.dataset.idx) || 0;
-    if (idx !== palSel) {
-      palSel = idx;
-      var items = palResults.querySelectorAll(".pal-item");
-      for (var i2 = 0; i2 < items.length; i2++) items[i2].classList.toggle("sel", i2 === palSel);
-    }
-  }
-
-  // src/core/html/shell.js
-  var CANVAS_SHELL = `
-<div id="reader">
-  <div id="reader-top">
-    <div id="breadcrumb"></div>
-    <button class="activity" id="act-reader" title="Jump to it"></button>
-    <button class="tool-btn" id="r-textdown" title="Smaller text">A\u2212</button>
-    <button class="tool-btn" id="r-textup" title="Larger text">A+</button>
-    <button class="tool-btn" id="r-canvas" title="Open the spatial canvas">\u2922 Canvas</button>
-    <button class="tool-btn" id="r-share" title="Share, export, synthesize">\u2197 Share</button>
-    <button class="tool-btn" id="r-theme" title="Toggle theme">\u25D1</button>
-    <button class="tool-btn" id="r-done" title="End the session (the hole stays saved)">Done</button>
-  </div>
-  <div id="since"><span class="since-dot"></span><span class="since-msg" id="since-msg"></span><button class="tool-btn" id="since-show">Show me</button><button id="since-x" title="Dismiss">\xD7</button></div>
-  <div id="reader-cols">
-    <div id="reader-center">
-      <div id="reader-main"></div>
-      <div id="composer">
-        <div class="composer-inner" id="composer-inner">
-          <textarea id="composer-text" rows="1" placeholder="Ask a follow-up about this document\u2026"></textarea>
-          <button id="composer-send" class="send-btn" title="Send (\u21B5)" disabled><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 12.8V3.6M8 3.6 3.9 7.7M8 3.6l4.1 4.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-        </div>
-      </div>
-    </div>
-    <div id="reader-side"></div>
-  </div>
-</div>
-
-<div id="viewport"><div id="world"><svg id="edges"></svg></div></div>
-<div id="toolbar">
-  <button class="tool-btn" id="t-reader" title="Back to reading"><svg width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" aria-hidden="true"><path d="M3.75 3.25h4.5c1 0 1.8.8 1.8 1.8v7.7H5.15c-.77 0-1.4-.63-1.4-1.4z"/><path d="M5.15 12.75c-.77 0-1.4-.63-1.4-1.4s.63-1.4 1.4-1.4h4.9"/></svg>Reader</button>
-  <span class="sep"></span>
-  <button class="tool-btn tool-icon" id="t-zout" title="Zoom out" aria-label="Zoom out">\u2212</button>
-  <button class="tool-btn" id="zoom-label" title="Zoom to 100%" aria-label="Zoom to 100%">100%</button>
-  <button class="tool-btn tool-icon" id="t-zin" title="Zoom in" aria-label="Zoom in">+</button>
-  <button class="tool-btn tool-icon" id="t-frame" title="Frame everything \xB7 F" aria-label="Frame everything \xB7 F"><svg width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" aria-hidden="true"><path d="M5.8 3.25H3.25V5.8"/><path d="M10.2 3.25h2.55V5.8"/><path d="M12.75 10.2v2.55H10.2"/><path d="M5.8 12.75H3.25V10.2"/></svg></button>
-  <span class="sep"></span>
-  <button class="tool-btn tool-icon" id="t-tidy" title="Tidy up layout \xB7 T" aria-label="Tidy up layout \xB7 T"><svg width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" aria-hidden="true"><rect x="6.25" y="2.5" width="3.5" height="2.75" rx="0.7"/><rect x="2.75" y="10.75" width="3.5" height="2.75" rx="0.7"/><rect x="9.75" y="10.75" width="3.5" height="2.75" rx="0.7"/><path d="M8 5.25v2.25"/><path d="M4.5 7.5h7"/><path d="M4.5 7.5v3.25"/><path d="M11.5 7.5v3.25"/></svg></button>
-  <span class="sep"></span>
-  <button class="tool-btn tool-icon" id="t-share" title="Share, export, synthesize" aria-label="Share, export, synthesize">\u2197</button>
-  <button class="tool-btn tool-icon" id="t-theme" title="Toggle theme" aria-label="Toggle theme">\u25D1</button>
-  <span class="sep" id="act-sep" style="display:none"></span>
-  <button class="activity" id="act-canvas" title="Jump to it"></button>
-</div>
-
-<div id="ask">
-  <div class="ask-input">
-    <textarea id="ask-text" rows="1" placeholder="Ask about this\u2026"></textarea>
-    <button class="send-btn" id="ask-go" title="Ask (\u21B5)"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 12.8V3.6M8 3.6 3.9 7.7M8 3.6l4.1 4.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-  </div>
-  <!-- Lens buttons are rendered client-side from the config-driven LENSES
-       (see ui/ask-followups.js renderLensButtons). -->
-  <div class="ask-lenses" id="ask-lenses"></div>
-  <!-- Shown only when the host wires an attach handler (the /app workspace):
-       drop a PDF/markdown source in as a branch of this selection. -->
-  <div class="ask-attach-row" id="ask-attach-row"><button class="ask-attach" id="ask-attach" type="button">\u2295 Attach a document here (.pdf / .md)</button></div>
-</div>
-
-<div id="palette"><div id="palette-panel">
-  <div class="pal-input">
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-    <input id="pal-text" placeholder="Search this Rabbithole\u2026" autocomplete="off" spellcheck="false">
-    <kbd>esc</kbd>
-  </div>
-  <div id="pal-results"></div>
-</div></div>
-
-<div id="peek"></div>
-
-<div id="sharemenu">
-  <button class="sm-item" id="sm-trail"><span class="sm-ic">\u2937</span>Copy trail as Markdown</button>
-  <button class="sm-item" id="sm-doc"><span class="sm-ic">\u29C9</span>Copy document as Markdown</button>
-  <div class="sm-sep"></div>
-  <button class="sm-item" id="sm-export"><span class="sm-ic">\u21E9</span>Download snapshot (.html)</button>
-  <div class="sm-sep" id="sm-sep2"></div>
-  <button class="sm-item" id="sm-synth"><span class="sm-ic">\u2726</span>Synthesize this journey</button>
-</div>
-
-<div id="confirm">
-  <div class="cf-msg" id="cf-msg"></div>
-  <div class="cf-row"><button id="cf-keep">Keep</button><button class="cf-remove" id="cf-remove">Remove</button></div>
-</div>
-
-<div id="banner"><div class="banner-body"><span class="banner-title" id="banner-title"></span><span id="banner-msg"></span></div><button id="banner-x" title="Dismiss">\xD7</button></div>
-<div id="hint"></div>
-`;
-
-  // src/ui/snapshot.js
-  var ASSET_REF_RE = /asset:([a-z0-9][a-z0-9_-]*\.(?:png|jpe?g|gif|webp|svg))/gi;
-  var snapshotHooks = {
-    fetchAssetData: null,
-    getFrozenClientSource: null,
-    getDompurifySource: null
-  };
-  function escapeHtml(str) {
-    return String(str != null ? str : "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  }
-  function serializeForInlineScript(value) {
-    return JSON.stringify(value).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
-  }
-  function snapshotViewState() {
-    var cur = nodes[currentNodeId];
-    var scroll = mode === "reader" ? readerMain.scrollTop : cur && cur._scrollTop || 0;
-    return {
-      mode,
-      node_id: currentNodeId,
-      scroll,
-      view: { x: view.x, y: view.y, scale: view.scale }
-    };
-  }
-  function serializeSnapshotNodes() {
-    return Object.keys(nodes).map(function(id) {
-      var n = nodes[id];
-      return {
-        id: n.id,
-        parent_id: n.parent_id || null,
-        title: n.title || "",
-        markdown: n.md || "",
-        base_url: n.base_url || null,
-        base_url_source: n.base_url_source || null,
-        origin: n.origin || null,
-        position: { x: n.x || 0, y: n.y || 0 },
-        size: { w: n.w, h: n.h },
-        font_scale: n.font_scale || 1,
-        collapsed: !!n.collapsed,
-        status: n.status || "answered",
-        read: !!n.read
-      };
-    });
-  }
-  function collectAssetNames(snapshotNodes) {
-    var names = {};
-    snapshotNodes.forEach(function(node) {
-      var source2 = String(node.markdown || "");
-      var match;
-      ASSET_REF_RE.lastIndex = 0;
-      while (match = ASSET_REF_RE.exec(source2)) names[match[1]] = true;
-    });
-    return Object.keys(names).sort();
-  }
-  function blobToDataUrl(blob) {
-    return new Promise(function(resolve) {
-      var reader = new FileReader();
-      reader.onload = function() {
-        resolve(String(reader.result || "data:,"));
-      };
-      reader.onerror = function() {
-        resolve("data:,");
-      };
-      reader.readAsDataURL(blob);
-    });
-  }
-  async function fetchAssetData(name) {
-    if (typeof snapshotHooks.fetchAssetData === "function") {
-      try {
-        var hooked = await snapshotHooks.fetchAssetData(name);
-        if (hooked) return hooked;
-      } catch (e) {
-      }
-    }
-    try {
-      var slash = String.fromCharCode(47);
-      var res = await fetch(slash + "assets" + slash + name, { cache: "no-store" });
-      if (!res.ok) return "data:,";
-      return await blobToDataUrl(await res.blob());
-    } catch (e) {
-      return "data:,";
-    }
-  }
-  async function buildAssetData(snapshotNodes) {
-    var out = {};
-    var names = collectAssetNames(snapshotNodes);
-    for (var i2 = 0; i2 < names.length; i2++) out[names[i2]] = await fetchAssetData(names[i2]);
-    return out;
-  }
-  function extractDompurifySource() {
-    if (typeof snapshotHooks.getDompurifySource === "function") {
-      return snapshotHooks.getDompurifySource() || "";
-    }
-    var script2 = document.scripts && document.scripts[0] ? document.scripts[0].textContent || "" : "";
-    var marker = "\n(function(){";
-    var idx = script2.indexOf(marker);
-    return idx === -1 ? "" : script2.slice(0, idx);
-  }
-  async function buildSnapshotHydration() {
-    var snapshotNodes = serializeSnapshotNodes();
-    var authorHydration = deriveAuthorHydration(snapshotNodes);
-    return {
-      session_id: hydration.session_id || null,
-      hole_id: hydration.hole_id || null,
-      title: hydration.title || "Clew",
-      root_id: rootId,
-      last_event_id: 0,
-      agent_attached: false,
-      view_state: snapshotViewState(),
-      frozen: true,
-      asset_data: await buildAssetData(snapshotNodes),
-      nodes: snapshotNodes,
-      ...authorHydration || {}
-    };
-  }
-  function buildSnapshotHtml(snapshotHydration) {
-    var _a2;
-    var title = snapshotHydration && snapshotHydration.title || "Clew";
-    var styleText = ((_a2 = document.querySelector("style")) == null ? void 0 : _a2.textContent) || "";
-    var dompurifySource = extractDompurifySource();
-    var frozenClient = typeof snapshotHooks.getFrozenClientSource === "function" ? snapshotHooks.getFrozenClientSource() : window.__RABBITHOLE_FROZEN_CLIENT__;
-    if (!frozenClient) throw new Error("Frozen client bundle is unavailable");
-    var lt = String.fromCharCode(60);
-    var gt = String.fromCharCode(62);
-    var scriptOpen = lt + "script" + gt;
-    var scriptClose = lt + String.fromCharCode(47) + "script" + gt;
-    return '<!DOCTYPE html>\n<html lang="en" data-theme="light">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n<title>' + escapeHtml(title) + "</title>\n<style>\n" + styleText + "\n</style>\n</head>\n<body>\n" + CANVAS_SHELL + "\n" + scriptOpen + "\n" + dompurifySource + '\n(function(){\n  "use strict";\n  var hydration = ' + serializeForInlineScript(snapshotHydration) + ";\n" + frozenClient + "\n  RabbitholeFrozenClient.startRabbithole(hydration);\n})();\n" + scriptClose + "\n</body>\n</html>";
-  }
-  function exportFilename(title) {
-    var slug = String(title || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
-    return "rabbithole-" + (slug || "export") + ".html";
-  }
-  async function downloadSnapshot() {
-    var snapshotHydration = await buildSnapshotHydration();
-    var html2 = buildSnapshotHtml(snapshotHydration);
-    var blob = new Blob([html2], { type: "text/html;charset=utf-8" });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement("a");
-    a.href = url;
-    a.download = exportFilename(snapshotHydration.title);
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(function() {
-      URL.revokeObjectURL(url);
-    }, 3e4);
-    return html2;
-  }
-
-  // src/ui/branch-surfaces.js
-  var branchHooks = {
-    post: function() {
-      return Promise.resolve({ ok: true });
-    }
-  };
-  function registerBranchHooks(hooks) {
-    Object.assign(branchHooks, hooks || {});
-  }
-  var peekTimer = 0;
-  var peekFor = null;
-  function initBranchSurfaces() {
-    readerMain.addEventListener("mouseover", onReaderMarkMouseover);
-    readerMain.addEventListener("mouseout", onReaderMarkMouseout);
-    peekEl.addEventListener("mouseleave", function() {
-      hidePeek();
-    });
-    peekEl.addEventListener("click", function() {
-      var kid = peekFor && nodes[peekFor];
-      hidePeek();
-      if (kid) openNode(kid.id);
-    });
-    document.getElementById("r-share").addEventListener("click", function(e) {
-      e.stopPropagation();
-      toggleShare(e.currentTarget);
-    });
-    document.getElementById("t-share").addEventListener("click", function(e) {
-      e.stopPropagation();
-      toggleShare(e.currentTarget);
-    });
-    document.getElementById("sm-doc").addEventListener("click", onCopyDoc);
-    document.getElementById("sm-trail").addEventListener("click", onCopyTrail);
-    document.getElementById("sm-export").addEventListener("click", onExportSnapshot);
-    document.getElementById("sm-synth").addEventListener("click", function(e) {
-      closeShare();
-      synthesize(motionSourceFromEvent(e));
-    });
-    document.getElementById("cf-keep").addEventListener("click", hideConfirm);
-    document.getElementById("cf-remove").addEventListener("click", function() {
-      var node = confirmFor && nodes[confirmFor];
-      hideConfirm();
-      if (node) deleteBranch(node);
-    });
-  }
-  function hidePeek() {
-    if (peekTimer) {
-      clearTimeout(peekTimer);
-      peekTimer = 0;
-    }
-    peekFor = null;
-    peekEl.classList.remove("visible");
-  }
-  function showPeek(mark) {
-    var kid = nodes[mark.dataset.child];
-    if (!kid || kid.status !== "answered") return;
-    peekFor = kid.id;
-    var badge = kid.origin && kid.origin.synthesis ? '<span class="lens-badge">\u2726 Synthesis</span>' : kid.origin && kid.origin.lens ? lensBadgeHtml(kid.origin.lens) : "";
-    peekEl.innerHTML = '<div class="peek-title">' + (isUnread(kid) ? '<span class="pal-dot"></span>' : "") + "<span>" + esc(kid.title || "Untitled") + "</span>" + badge + '</div><div class="peek-body md">' + (kid.html || "") + '</div><div class="peek-hint">Click to open</div>';
-    if (typeof mountVisuals === "function") {
-      var peekBody = peekEl.querySelector(".peek-body");
-      if (peekBody) mountVisuals(peekBody, "peek:" + kid.id);
-    }
-    var r2 = mark.getBoundingClientRect();
-    var top = r2.bottom + 8;
-    if (top + peekEl.offsetHeight + 10 > window.innerHeight) top = Math.max(10, r2.top - peekEl.offsetHeight - 8);
-    peekEl.style.left = Math.min(window.innerWidth - 360, Math.max(10, r2.left)) + "px";
-    peekEl.style.top = top + "px";
-    peekEl.classList.add("visible");
-    setSurfaceOrigin(peekEl, r2);
-  }
-  function onReaderMarkMouseover(e) {
-    var m = e.target.closest && e.target.closest("mark[data-child]");
-    if (!m) return;
-    var kid = nodes[m.dataset.child];
-    if (!kid || kid.status !== "answered") return;
-    if (peekTimer) clearTimeout(peekTimer);
-    peekTimer = setTimeout(function() {
-      peekTimer = 0;
-      showPeek(m);
-    }, 220);
-  }
-  function onReaderMarkMouseout(e) {
-    var m = e.target.closest && e.target.closest("mark[data-child]");
-    if (!m) return;
-    if (peekTimer) {
-      clearTimeout(peekTimer);
-      peekTimer = 0;
-    }
-    setTimeout(function() {
-      if (!peekEl.matches(":hover") && !readerMain.querySelector("mark[data-child]:hover")) hidePeek();
-    }, 80);
-  }
-  var shareOpen = false;
-  var shareTrap = null;
-  function toggleShare(anchor) {
-    if (shareOpen) {
-      closeShare();
-      return;
-    }
-    var noAgent = frozen || closed;
-    document.getElementById("sm-export").style.display = frozen ? "none" : "";
-    document.getElementById("sm-sep2").style.display = noAgent ? "none" : "";
-    document.getElementById("sm-synth").style.display = noAgent ? "none" : "";
-    var r2 = anchor.getBoundingClientRect();
-    shareMenu.style.left = Math.min(window.innerWidth - shareMenu.offsetWidth - 10, Math.max(10, r2.right - shareMenu.offsetWidth)) + "px";
-    shareMenu.style.top = r2.bottom + 8 + "px";
-    shareOpen = true;
-    shareMenu.classList.add("visible");
-    setSurfaceOrigin(shareMenu, r2);
-    if (shareTrap) shareTrap();
-    shareTrap = activateFocusTrap(shareMenu, {
-      initialFocus: shareMenu.querySelector("button"),
-      onEscape: closeShare
-    });
-  }
-  function closeShare() {
-    shareOpen = false;
-    shareMenu.classList.remove("visible");
-    if (shareTrap) {
-      shareTrap();
-      shareTrap = null;
-    }
-  }
-  function copyText(text2, okMsg) {
-    function done() {
-      flashHint(okMsg);
-    }
-    function legacy() {
-      var ta = document.createElement("textarea");
-      ta.value = text2;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      try {
-        document.execCommand("copy");
-      } catch (err) {
-      }
-      document.body.removeChild(ta);
-    }
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text2).then(done, function() {
-        legacy();
-        done();
-      });
-    } else {
-      legacy();
-      done();
-    }
-  }
-  function originLine(n) {
-    if (!n.origin) return "";
-    if (n.origin.synthesis) return "> \u2726 Synthesis of the whole Rabbithole\n\n";
-    var ask2 = n.origin.lens ? lensLabel2(n.origin.lens) : n.origin.question || "";
-    if (n.origin.selected_text) return "> Asked about: \u201C" + n.origin.selected_text + "\u201D" + (ask2 ? " \u2014 " + ask2 : "") + "\n\n";
-    return ask2 ? "> Follow-up \u2014 " + ask2 + "\n\n" : "";
-  }
-  function docMarkdown(n, depth) {
-    var h = "#";
-    for (var i2 = 0; i2 < Math.min(depth, 3); i2++) h += "#";
-    var body = (n.md || "").trim() || "_(still being written)_";
-    return h + " " + (n.title || "Untitled") + "\n\n" + originLine(n) + body + "\n";
-  }
-  function trailMarkdown(id) {
-    var path2 = lineageNodes(id), parts = [];
-    for (var i2 = 0; i2 < path2.length; i2++) parts.push(docMarkdown(path2[i2], i2));
-    return parts.join("\n---\n\n");
-  }
-  function onCopyDoc() {
-    closeShare();
-    var n = nodes[currentNodeId];
-    if (!n) return;
-    copyText(docMarkdown(n, 0), "Copied \u201C" + truncate2(n.title || "Untitled", 40) + "\u201D as Markdown");
-  }
-  function onCopyTrail() {
-    closeShare();
-    var path2 = lineageNodes(currentNodeId);
-    copyText(trailMarkdown(currentNodeId), path2.length === 1 ? "Copied this document as Markdown" : "Copied the trail \u2014 " + path2.length + " documents");
-  }
-  function onExportSnapshot() {
-    closeShare();
-    flashHint("Preparing snapshot...");
-    downloadSnapshot().then(function() {
-      flashHint("Snapshot downloading \u2014 a single file that opens anywhere.");
-    }, function() {
-      flashHint("Couldn't prepare the snapshot.");
-    });
-  }
-  function synthesize(source2) {
-    if (closed) {
-      flashHint("Session ended \u2014 reopen this Rabbithole from your terminal first.");
-      return;
-    }
-    var root = nodes[rootId];
-    if (!root) return;
-    for (var k in nodes) {
-      var n = nodes[k];
-      if (n.status === "pending" && n.origin && n.origin.synthesis) {
-        flashHint("A synthesis is already being written\u2026");
-        goToNode(n, source2);
-        return;
-      }
-    }
-    var q = "Step back and write the synthesis of this whole Rabbithole so far: the key ideas we explored, how they connect, and the takeaways worth keeping. Make it a standalone summary of the journey.";
-    var kid = sendFollowup(root, q, null, true);
-    if (mode === "canvas") revealNode(kid, source2);
-    flashHint("\u2726 Synthesizing this journey \u2014 it will appear as a branch of the root document.");
-  }
-  var confirmFor = null;
-  function confirmDelete(node, anchor) {
-    if (closed) {
-      flashHint(frozen ? "This is a read-only snapshot." : "Session ended \u2014 changes can't be saved anymore.");
-      return;
-    }
-    confirmFor = node.id;
-    var subCount = countSubtree(node.id) - 1;
-    document.getElementById("cf-msg").textContent = subCount > 0 ? "Remove this branch and " + subCount + " inside it?" : "Remove this branch?";
-    var r2 = anchor.getBoundingClientRect();
-    confirmEl.style.left = Math.min(window.innerWidth - confirmEl.offsetWidth - 10, Math.max(10, r2.right - confirmEl.offsetWidth)) + "px";
-    confirmEl.style.top = r2.bottom + 8 + "px";
-    confirmEl.classList.add("visible");
-    setSurfaceOrigin(confirmEl, r2);
-  }
-  function hideConfirm() {
-    confirmFor = null;
-    confirmEl.classList.remove("visible");
-  }
-  function countSubtree(id) {
-    var c2 = 1;
-    childrenOf(id).forEach(function(k) {
-      c2 += countSubtree(k.id);
-    });
-    return c2;
-  }
-  function collectSubtree(id, out) {
-    out.push(id);
-    childrenOf(id).forEach(function(k) {
-      collectSubtree(k.id, out);
-    });
-    return out;
-  }
-  function deleteBranch(node) {
-    var title = node.title || "Untitled";
-    var ids = collectSubtree(node.id, []);
-    branchHooks.post({ type: "delete_node", node_id: node.id });
-    removeNodesLocal(ids, node.parent_id);
-    flashHint(ids.length > 1 ? "Removed \u201C" + truncate2(title, 40) + "\u201D and " + (ids.length - 1) + " inside it" : "Removed \u201C" + truncate2(title, 40) + "\u201D");
-  }
-  function removeNodesLocal(ids, parentId) {
-    var currentGone = false;
-    for (var i2 = 0; i2 < ids.length; i2++) {
-      var id = ids[i2], n = nodes[id];
-      if (!n) continue;
-      if (currentNodeId === id) currentGone = true;
-      if (n.el && n.el.parentNode) n.el.parentNode.removeChild(n.el);
-      removeMarks(readerMain, id);
-      removeThreadItem(id);
-      var p = nodes[n.parent_id];
-      if (p && p.bodyEl) removeMarks(p.bodyEl, id);
-      clearEdgeHighlight(id);
-      delete nodes[id];
-    }
-    if (currentGone) {
-      setCurrentNodeId(parentId && nodes[parentId] ? parentId : rootId);
-      if (mode === "reader") openNode(currentNodeId);
-    }
-    if (canvasBuilt) {
-      renderVisibility();
-      drawEdges();
-    }
-    if (mode === "reader") {
-      renderBreadcrumb();
-      renderSidebar();
-    }
-    refreshAmbient();
-    updateSince();
   }
 
   // node_modules/marked/lib/marked.esm.js
@@ -21717,8 +20279,8 @@ ${text2}</tr>
   };
 
   // node_modules/highlight.js/es/core.js
-  var import_core8 = __toESM(require_core(), 1);
-  var core_default = import_core8.default;
+  var import_core3 = __toESM(require_core(), 1);
+  var core_default = import_core3.default;
 
   // node_modules/highlight.js/es/languages/bash.js
   function bash(hljs) {
@@ -31223,7 +29785,7 @@ ${text2}</tr>
   // src/core/utils.js
   var LINE_SEP = new RegExp(String.fromCharCode(8232), "g");
   var PARA_SEP = new RegExp(String.fromCharCode(8233), "g");
-  function escapeHtml2(str) {
+  function escapeHtml(str) {
     return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
 
@@ -31343,7 +29905,7 @@ ${text2}</tr>
     return -1;
   }
   function mathSourceCode(tex, displayMode) {
-    const code = `<code class="math-source">${escapeHtml2(tex)}</code>`;
+    const code = `<code class="math-source">${escapeHtml(tex)}</code>`;
     return displayMode ? `<p>${code}</p>
 ` : code;
   }
@@ -31370,7 +29932,7 @@ ${text2}</tr>
     return ((_a2 = String(lang || "").match(/\S+/)) == null ? void 0 : _a2[0]) || "";
   }
   function renderPendingVisual(language) {
-    return `<div class="viz viz-pending" data-viz="${escapeHtml2(language)}" aria-label="Drawing visual">Drawing\u2026</div>
+    return `<div class="viz viz-pending" data-viz="${escapeHtml(language)}" aria-label="Drawing visual">Drawing\u2026</div>
 `;
   }
   function findClosingFence(src, marker, from) {
@@ -31389,10 +29951,10 @@ ${text2}</tr>
   function renderPlainCode(source2, language, escaped) {
     const code = source2.replace(TRAILING_NEWLINE, "") + "\n";
     if (!language) {
-      return `<pre><code>${escaped ? code : escapeHtml2(code)}</code></pre>
+      return `<pre><code>${escaped ? code : escapeHtml(code)}</code></pre>
 `;
     }
-    return `<pre><code class="language-${escapeHtml2(language)}">${escaped ? code : escapeHtml2(code)}</code></pre>
+    return `<pre><code class="language-${escapeHtml(language)}">${escaped ? code : escapeHtml(code)}</code></pre>
 `;
   }
   function sanitizeUrl(href, allow) {
@@ -31413,7 +29975,7 @@ ${text2}</tr>
     }
     function renderVisualPlaceholder(language, source2) {
       const encoded = encodeBase64(String(source2 != null ? source2 : ""));
-      return `<div class="viz" data-viz="${escapeHtml2(language)}" data-src="${encoded}"></div>
+      return `<div class="viz" data-viz="${escapeHtml(language)}" data-src="${encoded}"></div>
 `;
     }
     function renderRegisteredFence(language, source2) {
@@ -31428,7 +29990,7 @@ ${text2}</tr>
       if (!language || !core_default.getLanguage(hljsLanguage)) return renderPlainCode(text2, language, escaped);
       const source2 = text2.replace(TRAILING_NEWLINE, "");
       const highlighted = core_default.highlight(source2, { language: hljsLanguage, ignoreIllegals: true }).value + "\n";
-      return `<pre><code class="language-${escapeHtml2(language)} hljs">${highlighted}</code></pre>
+      return `<pre><code class="language-${escapeHtml(language)} hljs">${highlighted}</code></pre>
 `;
     }
     function buildExtensions() {
@@ -31530,16 +30092,16 @@ ${text2}</tr>
           return renderCodeFence(token);
         },
         html({ text: text2 }) {
-          return escapeHtml2(text2);
+          return escapeHtml(text2);
         },
         link({ href, title, tokens }) {
           const text2 = this.parser.parseInline(tokens);
           const resolved = resolveMarkdownUrl(href, { baseUrl: context.baseUrl });
           const safe = sanitizeUrl(resolved, SAFE_URL);
           if (safe === null) return text2;
-          const titleAttr = title ? ` title="${escapeHtml2(title)}"` : "";
+          const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
           const target = safe.startsWith("#") ? "" : ` target="_blank"`;
-          return `<a href="${escapeHtml2(safe)}"${titleAttr}${target} rel="noopener noreferrer">${text2}</a>`;
+          return `<a href="${escapeHtml(safe)}"${titleAttr}${target} rel="noopener noreferrer">${text2}</a>`;
         },
         image({ href, title, text: text2 }) {
           const resolved = resolveMarkdownUrl(href, {
@@ -31549,9 +30111,9 @@ ${text2}</tr>
             resolveAssetUrl: context.resolveAssetUrl
           });
           const safe = sanitizeUrl(resolved, SAFE_IMG);
-          if (safe === null) return escapeHtml2(text2 || "");
-          const titleAttr = title ? ` title="${escapeHtml2(title)}"` : "";
-          return `<img src="${escapeHtml2(safe)}" alt="${escapeHtml2(text2 || "")}"${titleAttr}>`;
+          if (safe === null) return escapeHtml(text2 || "");
+          const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
+          return `<img src="${escapeHtml(safe)}" alt="${escapeHtml(text2 || "")}"${titleAttr}>`;
         }
       };
     }
@@ -31622,6 +30184,1651 @@ ${text2}</tr>
   }
   if (typeof window !== "undefined") {
     window.__rhMarkdownRendererSentinel = MARKDOWN_RENDERER_SENTINEL;
+  }
+
+  // src/ui/ask-followups.js
+  var askHooks = {
+    post: function() {
+      return Promise.resolve({ ok: true });
+    },
+    closeShare: function() {
+    },
+    hideConfirm: function() {
+    },
+    hidePeek: function() {
+    },
+    // Optional: attach a document (pdf/md) as a branch of the current selection.
+    // Only the /app web workspace wires this; absent → the button never shows.
+    attach: null,
+    // Optional: place a human-written note node (no AI). Receives the fully-built
+    // node; the /app workspace persists + syncs it. Absent → the button never shows.
+    note: null
+  };
+  function registerAskHooks(hooks) {
+    Object.assign(askHooks, hooks || {});
+    var row = document.getElementById("ask-attach-row");
+    var hasAttach = typeof askHooks.attach === "function";
+    var hasNote = typeof askHooks.note === "function";
+    if (row) row.classList.toggle("available", hasAttach || hasNote);
+    var attachBtn = document.getElementById("ask-attach");
+    if (attachBtn) attachBtn.style.display = hasAttach ? "" : "none";
+    var noteBtn = document.getElementById("ask-note");
+    if (noteBtn) noteBtn.style.display = hasNote ? "" : "none";
+  }
+  function initAskFollowups() {
+    document.addEventListener("mousedown", function(e) {
+      var c2 = e.target && e.target.closest ? function(sel) {
+        return e.target.closest(sel);
+      } : function() {
+        return null;
+      };
+      if (!c2("#sharemenu") && !c2("#r-share") && !c2("#t-share")) askHooks.closeShare();
+      if (!c2("#confirm")) askHooks.hideConfirm();
+      if (!c2("#peek") && !c2("mark[data-child]")) askHooks.hidePeek();
+      if (inAsk(e)) return;
+      hideAsk();
+    });
+    document.addEventListener("mouseup", function(e) {
+      if (inAsk(e)) return;
+      var defineIntent = !!e.metaKey;
+      setTimeout(function() {
+        maybeShowAsk(defineIntent);
+      }, 0);
+    });
+    askGo.addEventListener("click", function(e) {
+      submitAsk(null, motionSourceFromEvent(e));
+    });
+    renderLensButtons();
+    document.getElementById("ask-lenses").addEventListener("click", function(e) {
+      var b = e.target.closest ? e.target.closest(".lens") : null;
+      if (b) submitAsk(b.getAttribute("data-lens"), motionSourceFromEvent(e));
+    });
+    var attachBtn = document.getElementById("ask-attach");
+    if (attachBtn) attachBtn.addEventListener("click", function(e) {
+      e.preventDefault();
+      if (!pendingAsk || typeof askHooks.attach !== "function") return;
+      var req = {
+        parentId: pendingAsk.parentId,
+        selectedText: pendingAsk.selectedText,
+        anchor: { offset_start: pendingAsk.startOff, offset_end: pendingAsk.endOff }
+      };
+      hideAsk();
+      askHooks.attach(req);
+    });
+    var noteBtn = document.getElementById("ask-note");
+    if (noteBtn) noteBtn.addEventListener("click", function(e) {
+      e.preventDefault();
+      setAskMode(askMode === "note" ? "ask" : "note");
+    });
+    askText.addEventListener("input", function() {
+      autoGrowEl(askText, 110);
+    });
+    askText.addEventListener("keydown", onAskTextKeydown);
+    composerText.addEventListener("input", function() {
+      autoGrowComposer();
+      updateComposerState();
+    });
+    composerText.addEventListener("keydown", function(e) {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        submitFollowup("keyboard");
+      }
+    });
+    composerSend.addEventListener("click", function(e) {
+      submitFollowup(motionSourceFromEvent(e));
+    });
+    readerMain.addEventListener("wheel", interruptScrollAnimation, { passive: true });
+    readerMain.addEventListener("touchstart", interruptScrollAnimation, { passive: true });
+    readerMain.addEventListener("pointerdown", interruptScrollAnimation, { passive: true });
+    readerMain.addEventListener("scroll", function() {
+      if (performance.now() > scrollAnimIgnoreUntil) cancelScrollAnimation();
+    }, { passive: true });
+    document.addEventListener("keydown", interruptScrollAnimation);
+  }
+  function inAsk(e) {
+    return e.target && e.target.closest && e.target.closest("#ask");
+  }
+  function renderLensButtons() {
+    var box = document.getElementById("ask-lenses");
+    if (!box) return;
+    var html2 = "";
+    for (var i2 = 0; i2 < LENS_ORDER.length; i2++) {
+      var id = LENS_ORDER[i2];
+      var kbd = i2 < 9 ? " <kbd>" + (i2 + 1) + "</kbd>" : "";
+      html2 += '<button class="lens" data-lens="' + esc(id) + '">' + esc(lensLabel2(id)) + kbd + "</button>";
+    }
+    box.innerHTML = html2;
+  }
+  function maybeShowAsk(defineIntent) {
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
+    var anchor = sel.anchorNode && sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentNode : sel.anchorNode;
+    var dc = anchor && anchor.closest ? anchor.closest(".doc-content") : null;
+    if (!dc) return;
+    var parentId = dc.dataset.nodeId;
+    if (!parentId || !nodes[parentId] || nodes[parentId].status === "pending") return;
+    if (closed) {
+      flashHint(frozen ? "This is a read-only snapshot \u2014 asking needs the live Rabbithole." : "Session ended \u2014 reopen this Rabbithole from your terminal to keep asking.");
+      return;
+    }
+    var range = sel.getRangeAt(0);
+    if (!dc.contains(range.startContainer) || !dc.contains(range.endContainer)) return;
+    var startOff = charOffset(dc, range.startContainer, range.startOffset);
+    var endOff = charOffset(dc, range.endContainer, range.endOffset);
+    if (endOff <= startOff) return;
+    pendingAsk = {
+      parentId,
+      container: dc,
+      selectedText: sel.toString().trim(),
+      startOff,
+      endOff,
+      range: range.cloneRange()
+    };
+    if (defineIntent) {
+      submitDefinition("pointer");
+      return;
+    }
+    paintAskHighlight(pendingAsk.range);
+    setAskMode("ask");
+    askText.value = "";
+    var rect = range.getBoundingClientRect();
+    ask.style.left = Math.min(window.innerWidth - 392, Math.max(10, rect.left)) + "px";
+    ask.style.top = Math.min(window.innerHeight - 200, rect.bottom + 8) + "px";
+    ask.classList.add("visible");
+    setSurfaceOrigin(ask, rect);
+    autoGrowEl(askText, 110);
+    askText.focus();
+  }
+  var pendingAsk = null;
+  var askMode = "ask";
+  function setAskMode(m) {
+    askMode = m === "note" ? "note" : "ask";
+    ask.classList.toggle("note-mode", askMode === "note");
+    var noteBtn = document.getElementById("ask-note");
+    if (noteBtn) noteBtn.textContent = askMode === "note" ? "\u21A9 Ask AI instead" : "\u270E Write a note instead";
+    askText.placeholder = askMode === "note" ? "Your note on this \u2014 just you, no AI\u2026" : "Ask about this\u2026";
+    askGo.title = askMode === "note" ? "Place note (\u21B5)" : "Ask (\u21B5)";
+    if (ask.classList.contains("visible")) askText.focus();
+  }
+  function hideAsk() {
+    ask.classList.remove("visible");
+    ask.classList.remove("note-mode");
+    askMode = "ask";
+    pendingAsk = null;
+    clearAskHighlight();
+  }
+  function paintAskHighlight(range) {
+    try {
+      if (window.Highlight && window.CSS && CSS.highlights) CSS.highlights.set("rh-ask", new Highlight(range));
+    } catch (e) {
+    }
+  }
+  function clearAskHighlight() {
+    try {
+      if (window.CSS && CSS.highlights) CSS.highlights.delete("rh-ask");
+    } catch (e) {
+    }
+  }
+  function lensForDigit(key) {
+    var i2 = /^[1-9]$/.test(key) ? parseInt(key, 10) : 0;
+    return i2 && i2 <= LENS_ORDER.length ? LENS_ORDER[i2 - 1] : null;
+  }
+  function onAskTextKeydown(e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      submitAsk(null, "keyboard");
+    } else if (e.key === "Escape") {
+      hideAsk();
+    } else if (askMode === "ask" && askText.value === "" && !e.metaKey && !e.ctrlKey && !e.altKey && lensForDigit(e.key)) {
+      e.preventDefault();
+      submitAsk(lensForDigit(e.key), "keyboard");
+    }
+  }
+  function submitAsk(lensKey, source2) {
+    if (askMode === "note" && !lensKey) {
+      submitNote(source2);
+      return;
+    }
+    if (!pendingAsk || closed) return;
+    var parent = nodes[pendingAsk.parentId];
+    if (!parent) {
+      hideAsk();
+      return;
+    }
+    var lens = lensKey && LENSES[lensKey] ? lensKey : null;
+    var question = lens ? LENSES[lens].q : askText.value.trim();
+    var requestId = uuid(), childId = uuid();
+    var pos = placeChild2(parent, BRANCH_SELECTION);
+    var anchor = { offset_start: pendingAsk.startOff, offset_end: pendingAsk.endOff };
+    var node = {
+      id: childId,
+      parent_id: parent.id,
+      title: lens ? lensLabel2(lens) : question ? truncate2(question, 48) : "\u2026",
+      html: "",
+      md: "",
+      base_url: parent.base_url || null,
+      base_url_source: parent.base_url ? "inherited" : null,
+      read: false,
+      origin: {
+        selected_text: pendingAsk.selectedText,
+        question,
+        lens,
+        anchor,
+        branch_type: BRANCH_SELECTION,
+        author: selfAuthor || void 0
+      },
+      x: pos.x,
+      y: pos.y,
+      w: DEFAULT_CHILD.w,
+      h: DEFAULT_CHILD.h,
+      font_scale: 1,
+      collapsed: false,
+      status: "pending",
+      _order: nextOrder(),
+      _startTs: Date.now()
+    };
+    nodes[childId] = node;
+    if (canvasBuilt) {
+      createNodeEl(node, true);
+      renderVisibility();
+      drawEdges();
+    }
+    if (mode === "reader") {
+      var rdc = readerMain.querySelector('.doc-content[data-node-id="' + parent.id + '"]');
+      wrapInContainer(rdc, anchor, childId, "hl mark-pending");
+      if (currentNodeId === parent.id) renderSidebar();
+    }
+    if (parent.bodyEl) {
+      wrapInContainer(parent.bodyEl.querySelector(".doc-content"), anchor, childId, "hl mark-pending");
+      scheduleEdges();
+    }
+    var sel = window.getSelection();
+    if (sel) sel.removeAllRanges();
+    hideAsk();
+    askHooks.post({
+      type: "branch_request",
+      request_id: requestId,
+      node_id: childId,
+      parent_id: parent.id,
+      selected_text: node.origin.selected_text,
+      question,
+      lens,
+      anchor,
+      branch_type: BRANCH_SELECTION,
+      position: { x: node.x, y: node.y },
+      size: { w: node.w, h: node.h }
+    }).then(function(res) {
+      if (!res || !res.ok) rollbackBranch(node);
+    });
+    revealNode(node, source2);
+    refreshAmbient();
+  }
+  var DEFINITION_SIZE = { w: 480, h: 380 };
+  function definitionQuestion(term) {
+    return 'Define "' + term + '": the precise meaning as used in this passage first, then the general definition, part of speech, and a one-line etymology or origin if it illuminates. Compact \u2014 a dictionary card, not an essay.';
+  }
+  function submitDefinition(source2) {
+    if (!pendingAsk || closed) return;
+    var parent = nodes[pendingAsk.parentId];
+    if (!parent) {
+      hideAsk();
+      return;
+    }
+    var term = pendingAsk.selectedText;
+    var question = definitionQuestion(truncate2(term, 120));
+    var requestId = uuid(), childId = uuid();
+    var pos = placeChild2(parent, BRANCH_SELECTION, DEFINITION_SIZE);
+    var anchor = { offset_start: pendingAsk.startOff, offset_end: pendingAsk.endOff };
+    var node = {
+      id: childId,
+      parent_id: parent.id,
+      title: truncate2(term, 48),
+      html: "",
+      md: "",
+      base_url: parent.base_url || null,
+      base_url_source: parent.base_url ? "inherited" : null,
+      read: false,
+      origin: {
+        selected_text: term,
+        question,
+        lens: null,
+        anchor,
+        branch_type: BRANCH_DEFINITION,
+        local: true,
+        author: selfAuthor || void 0
+      },
+      x: pos.x,
+      y: pos.y,
+      w: DEFINITION_SIZE.w,
+      h: DEFINITION_SIZE.h,
+      font_scale: 1,
+      collapsed: false,
+      status: "pending",
+      _order: nextOrder(),
+      _startTs: Date.now()
+    };
+    nodes[childId] = node;
+    if (canvasBuilt) {
+      createNodeEl(node, true);
+      renderVisibility();
+      drawEdges();
+    }
+    if (mode === "reader") {
+      var rdc = readerMain.querySelector('.doc-content[data-node-id="' + parent.id + '"]');
+      wrapInContainer(rdc, anchor, childId, "hl mark-pending");
+      if (currentNodeId === parent.id) renderSidebar();
+    }
+    if (parent.bodyEl) {
+      wrapInContainer(parent.bodyEl.querySelector(".doc-content"), anchor, childId, "hl mark-pending");
+      scheduleEdges();
+    }
+    var sel = window.getSelection();
+    if (sel) sel.removeAllRanges();
+    hideAsk();
+    askHooks.post({
+      type: "branch_request",
+      request_id: requestId,
+      node_id: childId,
+      parent_id: parent.id,
+      selected_text: term,
+      question,
+      lens: null,
+      anchor,
+      branch_type: BRANCH_DEFINITION,
+      local: true,
+      position: { x: node.x, y: node.y },
+      size: { w: node.w, h: node.h }
+    }).then(function(res) {
+      if (!res || !res.ok) rollbackBranch(node);
+    });
+    revealNode(node, source2);
+    refreshAmbient();
+  }
+  var NOTE_SIZE = { w: 560, h: 420 };
+  function submitNote(source2) {
+    if (!pendingAsk || closed) return;
+    if (typeof askHooks.note !== "function") return;
+    var text2 = askText.value.trim();
+    if (!text2) return;
+    var parent = nodes[pendingAsk.parentId];
+    if (!parent) {
+      hideAsk();
+      return;
+    }
+    var childId = uuid();
+    var pos = placeChild2(parent, BRANCH_SELECTION, NOTE_SIZE);
+    var anchor = { offset_start: pendingAsk.startOff, offset_end: pendingAsk.endOff };
+    var node = {
+      id: childId,
+      parent_id: parent.id,
+      title: truncate2(text2, 48),
+      html: "",
+      md: text2,
+      base_url: parent.base_url || null,
+      base_url_source: parent.base_url ? "inherited" : null,
+      read: true,
+      origin: {
+        selected_text: pendingAsk.selectedText,
+        question: "",
+        lens: null,
+        anchor,
+        branch_type: BRANCH_NOTE,
+        author: selfAuthor || void 0
+      },
+      x: pos.x,
+      y: pos.y,
+      w: NOTE_SIZE.w,
+      h: NOTE_SIZE.h,
+      font_scale: 1,
+      collapsed: false,
+      status: "answered",
+      _order: nextOrder()
+    };
+    refreshNodeHtml(node);
+    nodes[childId] = node;
+    if (canvasBuilt) {
+      createNodeEl(node, true);
+      renderVisibility();
+      drawEdges();
+    }
+    if (mode === "reader") {
+      var rdc = readerMain.querySelector('.doc-content[data-node-id="' + parent.id + '"]');
+      wrapInContainer(rdc, anchor, childId, "hl mark-ready");
+      if (currentNodeId === parent.id) renderSidebar();
+    }
+    if (parent.bodyEl) {
+      wrapInContainer(parent.bodyEl.querySelector(".doc-content"), anchor, childId, "hl mark-ready");
+      scheduleEdges();
+    }
+    var sel = window.getSelection();
+    if (sel) sel.removeAllRanges();
+    hideAsk();
+    askHooks.note({
+      id: node.id,
+      parent_id: node.parent_id,
+      title: node.title,
+      markdown: node.md,
+      origin: node.origin,
+      position: { x: node.x, y: node.y },
+      size: { w: node.w, h: node.h },
+      created_at: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    revealNode(node, source2);
+  }
+  function updateComposerState() {
+    var current = nodes[currentNodeId];
+    var down = closed || !current || current.status === "pending";
+    composerText.disabled = down;
+    composerInner.classList.toggle("disabled", down);
+    if (frozen) composerText.placeholder = "Read-only snapshot \u2014 open the live Rabbithole to keep asking";
+    else if (closed) composerText.placeholder = "Session ended \u2014 reopen this Rabbithole from your terminal; saved questions are answered there";
+    else if (current && current.status === "pending") composerText.placeholder = "This answer is still being written\u2026";
+    else if (connLost || !agentAttached) composerText.placeholder = "The agent is away \u2014 questions are saved and answered when it returns\u2026";
+    else composerText.placeholder = "Ask a follow-up about this document\u2026";
+    composerSend.disabled = down || !composerText.value.trim();
+  }
+  function autoGrowComposer() {
+    autoGrowEl(composerText, 140);
+  }
+  function sendFollowup(parent, question, lens, synthesis) {
+    var requestId = uuid(), childId = uuid();
+    var pos = placeChild2(parent, BRANCH_FOLLOWUP);
+    var node = {
+      id: childId,
+      parent_id: parent.id,
+      title: synthesis ? "Synthesis" : lens ? lensLabel2(lens) : truncate2(question, 48),
+      html: "",
+      md: "",
+      base_url: parent.base_url || null,
+      base_url_source: parent.base_url ? "inherited" : null,
+      read: false,
+      origin: {
+        selected_text: "",
+        question,
+        lens,
+        synthesis: !!synthesis,
+        anchor: null,
+        branch_type: BRANCH_FOLLOWUP,
+        author: selfAuthor || void 0
+      },
+      x: pos.x,
+      y: pos.y,
+      w: DEFAULT_CHILD.w,
+      h: DEFAULT_CHILD.h,
+      font_scale: 1,
+      collapsed: false,
+      status: "pending",
+      _order: nextOrder(),
+      _startTs: Date.now()
+    };
+    nodes[childId] = node;
+    if (canvasBuilt) {
+      createNodeEl(node, true);
+      renderVisibility();
+      drawEdges();
+    }
+    if (currentNodeId === parent.id && mode === "reader") {
+      if (synthesis) renderSidebar();
+      else {
+        var t = ensureThread();
+        if (t) t.appendChild(buildThreadItem(node));
+      }
+    }
+    var payload = {
+      type: "branch_request",
+      request_id: requestId,
+      node_id: childId,
+      parent_id: parent.id,
+      selected_text: "",
+      question,
+      lens,
+      anchor: null,
+      branch_type: BRANCH_FOLLOWUP,
+      position: { x: node.x, y: node.y },
+      size: { w: node.w, h: node.h }
+    };
+    if (synthesis) payload.synthesis = true;
+    askHooks.post(payload).then(function(res) {
+      if (!res || !res.ok) rollbackBranch(node);
+    });
+    refreshAmbient();
+    return node;
+  }
+  var scrollAnimId = 0;
+  var scrollAnimIgnoreUntil = 0;
+  function cancelScrollAnimation() {
+    scrollAnimId++;
+  }
+  function setAnimatedScrollTop(el, value) {
+    scrollAnimIgnoreUntil = performance.now() + 80;
+    el.scrollTop = value;
+  }
+  function animateScroll(el, target, source2) {
+    var myId = ++scrollAnimId;
+    if (document.hidden || shouldReduceMotion() || source2 !== "pointer") {
+      el.scrollTop = target;
+      return;
+    }
+    var s = el.scrollTop, t0 = performance.now(), D2 = 240;
+    function step(t) {
+      if (myId !== scrollAnimId) return;
+      var p = Math.min(1, (t - t0) / D2), k = easeOutMotion(p);
+      setAnimatedScrollTop(el, s + (target - s) * k);
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+  function interruptScrollAnimation() {
+    cancelScrollAnimation();
+  }
+  function submitFollowup(source2) {
+    if (closed) {
+      flashHint(frozen ? "This is a read-only snapshot." : "Session ended \u2014 reopen this Rabbithole from your terminal to continue.");
+      return;
+    }
+    var parent = nodes[currentNodeId];
+    if (!parent || parent.status === "pending") return;
+    var question = composerText.value.trim();
+    if (!question) return;
+    sendFollowup(parent, question, null);
+    composerText.value = "";
+    autoGrowComposer();
+    updateComposerState();
+    animateScroll(readerMain, readerMain.scrollHeight, source2);
+  }
+  function rollbackBranch(node) {
+    var live = nodes[node.id];
+    if (!live || live.status === "answered") return;
+    delete nodes[node.id];
+    if (node.el && node.el.parentNode) node.el.parentNode.removeChild(node.el);
+    removeMarks(readerMain, node.id);
+    removeThreadItem(node.id);
+    var p = nodes[node.parent_id];
+    if (p && p.bodyEl) removeMarks(p.bodyEl, node.id);
+    if (canvasBuilt) drawEdges();
+    if (mode === "reader" && currentNodeId === node.parent_id) renderSidebar();
+    refreshAmbient();
+    flashHint("Couldn't reach the agent \u2014 that ask was undone.");
+  }
+  function placeChild2(parent, branchType, childSize) {
+    return placeChild(parent, branchType, {
+      childrenOf,
+      effH,
+      sort: nodeOrder2,
+      childSize: childSize || DEFAULT_CHILD
+    });
+  }
+
+  // src/ui/focus-trap.js
+  var FOCUSABLE = [
+    "a[href]",
+    "button:not([disabled])",
+    "textarea:not([disabled])",
+    "input:not([disabled])",
+    "select:not([disabled])",
+    "[tabindex]:not([tabindex='-1'])"
+  ].join(",");
+  function activateFocusTrap(root, options2) {
+    if (!root) return function() {
+    };
+    options2 = options2 || {};
+    var previous = document.activeElement;
+    if (!root.hasAttribute("tabindex")) root.setAttribute("tabindex", "-1");
+    function focusables() {
+      var all = root.querySelectorAll ? Array.prototype.slice.call(root.querySelectorAll(FOCUSABLE)) : [];
+      return all.filter(function(el) {
+        return el.offsetParent !== null || el === document.activeElement || el === options2.initialFocus;
+      });
+    }
+    function focusInitial() {
+      var target = options2.initialFocus || focusables()[0] || root;
+      try {
+        target.focus({ preventScroll: true });
+      } catch (e) {
+        try {
+          target.focus();
+        } catch (_e) {
+        }
+      }
+    }
+    function onKeydown(e) {
+      if (e.key === "Escape" && typeof options2.onEscape === "function") {
+        e.preventDefault();
+        e.stopPropagation();
+        options2.onEscape(e);
+        return;
+      }
+      if (e.key !== "Tab") return;
+      var items = focusables();
+      if (!items.length) {
+        e.preventDefault();
+        root.focus();
+        return;
+      }
+      var first = items[0];
+      var last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", onKeydown, true);
+    setTimeout(focusInitial, 0);
+    return function deactivateFocusTrap() {
+      document.removeEventListener("keydown", onKeydown, true);
+      if (options2.restoreFocus !== false && previous && previous.focus) {
+        try {
+          previous.focus({ preventScroll: true });
+        } catch (e) {
+          try {
+            previous.focus();
+          } catch (_e) {
+          }
+        }
+      }
+    };
+  }
+
+  // src/ui/image-ux.js
+  var imageResizeMemory = {};
+  var activeLightbox = null;
+  var IMAGE_MIN_WIDTH = 120;
+  var LIGHTBOX_MIN_ZOOM = 0.25;
+  var LIGHTBOX_MAX_ZOOM = 6;
+  function imageSurfaceScale(dc) {
+    if (!dc || !dc.offsetWidth) return 1;
+    var rect = dc.getBoundingClientRect();
+    return rect.width ? rect.width / dc.offsetWidth : 1;
+  }
+  function imageMemoryKey(dc, img, index, surfaceKey) {
+    var nodeId = dc && dc.dataset && dc.dataset.nodeId || "doc";
+    return String(surfaceKey || "surface") + ":" + nodeId + ":" + index + ":" + (img.getAttribute("src") || "");
+  }
+  function clampImageWidth(dc, value) {
+    var max = Math.max(IMAGE_MIN_WIDTH, dc ? dc.clientWidth : IMAGE_MIN_WIDTH);
+    return Math.max(IMAGE_MIN_WIDTH, Math.min(max, value));
+  }
+  function nearestImageScrollContainer(el) {
+    var cur = el ? el.parentElement : null;
+    while (cur && cur !== document.body && cur !== document.documentElement) {
+      var style = window.getComputedStyle(cur);
+      var oy = style.overflowY;
+      if ((oy === "auto" || oy === "scroll" || oy === "overlay") && cur.scrollHeight > cur.clientHeight + 1) return cur;
+      cur = cur.parentElement;
+    }
+    return document.scrollingElement || document.documentElement;
+  }
+  function imageScrollScale(scroller) {
+    if (!scroller || !scroller.offsetHeight) return 1;
+    var rect = scroller.getBoundingClientRect();
+    return rect.height ? rect.height / scroller.offsetHeight : 1;
+  }
+  function keepImageHandleAnchored(scroller, beforeRect, afterRect) {
+    if (!scroller || !beforeRect || !afterRect) return;
+    var delta = afterRect.bottom - beforeRect.bottom;
+    if (!delta) return;
+    scroller.scrollTop += delta / imageScrollScale(scroller);
+  }
+  function applyImageWidth(frame, width) {
+    frame.style.width = Math.round(width) + "px";
+    frame.dataset.rhResized = "1";
+  }
+  function resetImageWidth(frame, key) {
+    frame.style.width = "";
+    delete frame.dataset.rhResized;
+    if (key) delete imageResizeMemory[key];
+  }
+  function beginImageResize(e, dc, frame, key) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    hideAsk();
+    var scale = imageSurfaceScale(dc);
+    var startX = e.clientX;
+    var startW = frame.getBoundingClientRect().width / scale;
+    var scroller = nearestImageScrollContainer(frame);
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch (_e) {
+    }
+    function move(ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      var next = clampImageWidth(dc, startW + (ev.clientX - startX) / scale);
+      var before = frame.getBoundingClientRect();
+      applyImageWidth(frame, next);
+      keepImageHandleAnchored(scroller, before, frame.getBoundingClientRect());
+      imageResizeMemory[key] = next;
+      scheduleEdges();
+    }
+    function done(ev) {
+      if (ev) ev.stopPropagation();
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerup", done, true);
+      window.removeEventListener("pointercancel", done, true);
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch (_e) {
+      }
+      scheduleEdges();
+    }
+    window.addEventListener("pointermove", move, true);
+    window.addEventListener("pointerup", done, true);
+    window.addEventListener("pointercancel", done, true);
+  }
+  function setLightboxTransform(img, state) {
+    img.style.setProperty("--rh-zoom", state.scale);
+    img.style.setProperty("--rh-pan-x", Math.round(state.x) + "px");
+    img.style.setProperty("--rh-pan-y", Math.round(state.y) + "px");
+  }
+  function clampLightboxZoom(value) {
+    return Math.max(LIGHTBOX_MIN_ZOOM, Math.min(LIGHTBOX_MAX_ZOOM, value));
+  }
+  function pointerDistance(a, b) {
+    var dx = a.clientX - b.clientX;
+    var dy = a.clientY - b.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+  function openImageLightbox(src, alt) {
+    closeImageLightbox();
+    var overlay = document.createElement("div");
+    overlay.className = "rh-lightbox";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", alt || "Image preview");
+    overlay.setAttribute("tabindex", "-1");
+    var img = document.createElement("img");
+    img.className = "rh-lightbox-img";
+    img.src = src;
+    img.alt = alt || "";
+    img.draggable = false;
+    overlay.appendChild(img);
+    document.body.appendChild(overlay);
+    var state = { scale: 1, x: 0, y: 0 };
+    var drag = null;
+    var pointers = {};
+    var pinch = null;
+    setLightboxTransform(img, state);
+    var trap = activateFocusTrap(overlay, { initialFocus: overlay, onEscape: closeImageLightbox });
+    activeLightbox = { el: overlay, key: onKey, trap };
+    function onKey(e) {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      closeImageLightbox();
+    }
+    function clearPointer(id) {
+      delete pointers[id];
+      var keys = Object.keys(pointers);
+      if (keys.length < 2) pinch = null;
+      if (!keys.length) drag = null;
+    }
+    overlay.addEventListener("click", function(e) {
+      if (e.target === overlay) closeImageLightbox();
+    });
+    overlay.addEventListener("wheel", function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var next = clampLightboxZoom(state.scale * (e.deltaY < 0 ? 1.12 : 0.88));
+      state.scale = next;
+      if (state.scale <= 1) {
+        state.x = 0;
+        state.y = 0;
+      }
+      setLightboxTransform(img, state);
+    }, { passive: false });
+    overlay.addEventListener("pointerdown", function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      pointers[e.pointerId] = { clientX: e.clientX, clientY: e.clientY };
+      try {
+        overlay.setPointerCapture(e.pointerId);
+      } catch (_e) {
+      }
+      var ids = Object.keys(pointers);
+      if (ids.length >= 2) {
+        pinch = { dist: pointerDistance(pointers[ids[0]], pointers[ids[1]]), scale: state.scale };
+        drag = null;
+      } else if (e.target === img && state.scale > 1) {
+        drag = { x: e.clientX, y: e.clientY, ox: state.x, oy: state.y };
+      }
+    });
+    overlay.addEventListener("pointermove", function(e) {
+      if (!pointers[e.pointerId]) return;
+      e.preventDefault();
+      e.stopPropagation();
+      pointers[e.pointerId] = { clientX: e.clientX, clientY: e.clientY };
+      var ids = Object.keys(pointers);
+      if (pinch && ids.length >= 2) {
+        var dist = pointerDistance(pointers[ids[0]], pointers[ids[1]]);
+        if (pinch.dist > 0) state.scale = clampLightboxZoom(pinch.scale * dist / pinch.dist);
+        if (state.scale <= 1) {
+          state.x = 0;
+          state.y = 0;
+        }
+        setLightboxTransform(img, state);
+      } else if (drag && state.scale > 1) {
+        state.x = drag.ox + e.clientX - drag.x;
+        state.y = drag.oy + e.clientY - drag.y;
+        setLightboxTransform(img, state);
+      }
+    });
+    overlay.addEventListener("pointerup", function(e) {
+      clearPointer(e.pointerId);
+    });
+    overlay.addEventListener("pointercancel", function(e) {
+      clearPointer(e.pointerId);
+    });
+    document.addEventListener("keydown", onKey, true);
+  }
+  function closeImageLightbox() {
+    if (!activeLightbox) return;
+    document.removeEventListener("keydown", activeLightbox.key, true);
+    if (typeof activeLightbox.trap === "function") activeLightbox.trap();
+    if (activeLightbox.el && activeLightbox.el.parentNode) activeLightbox.el.parentNode.removeChild(activeLightbox.el);
+    activeLightbox = null;
+  }
+  function mountDocImages(dc, node, base, surfaceKey) {
+    if (!dc || !dc.querySelectorAll) return;
+    var imgs = dc.querySelectorAll("img");
+    for (var i2 = 0; i2 < imgs.length; i2++) {
+      var img = imgs[i2];
+      if (img.dataset.rhImgReady === "1") continue;
+      if (img.closest(".viz, .viz-mounted")) continue;
+      var frame = img.parentNode && img.parentNode.classList && img.parentNode.classList.contains("rh-img-frame") ? img.parentNode : null;
+      if (!frame) {
+        frame = document.createElement("span");
+        frame.className = "rh-img-frame";
+        img.parentNode.insertBefore(frame, img);
+        frame.appendChild(img);
+      }
+      var key = imageMemoryKey(dc, img, i2, surfaceKey || visualSurfaceKey(node, base));
+      img.dataset.rhImgReady = "1";
+      img.draggable = false;
+      if (imageResizeMemory[key]) applyImageWidth(frame, imageResizeMemory[key]);
+      var handle = document.createElement("button");
+      handle.type = "button";
+      handle.className = "rh-img-handle";
+      handle.setAttribute("aria-label", "Resize image");
+      handle.title = "Drag to resize \xB7 double-click to reset";
+      frame.appendChild(handle);
+      frame.addEventListener("pointerdown", function(e) {
+        e.stopPropagation();
+      });
+      img.addEventListener("click", function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        openImageLightbox(e.currentTarget.currentSrc || e.currentTarget.src, e.currentTarget.alt);
+      });
+      handle.addEventListener("pointerdown", /* @__PURE__ */ (function(f, k) {
+        return function(e) {
+          beginImageResize(e, dc, f, k);
+        };
+      })(frame, key));
+      handle.addEventListener("dblclick", /* @__PURE__ */ (function(f, k) {
+        return function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var scroller = nearestImageScrollContainer(f);
+          var before = f.getBoundingClientRect();
+          resetImageWidth(f, k);
+          keepImageHandleAnchored(scroller, before, f.getBoundingClientRect());
+          scheduleEdges();
+        };
+      })(frame, key));
+    }
+  }
+
+  // src/ui/palette.js
+  var paletteHooks = {
+    hideAsk: function() {
+    },
+    hidePeek: function() {
+    },
+    closeShare: function() {
+    },
+    hideConfirm: function() {
+    }
+  };
+  function registerPaletteHooks(hooks) {
+    Object.assign(paletteHooks, hooks || {});
+  }
+  function getPlain(node) {
+    if (node._plainFor !== node.html) {
+      var d = document.createElement("div");
+      d.innerHTML = node.html || "";
+      node._plainFor = node.html;
+      node._plain = d.textContent || "";
+    }
+    return node._plain || "";
+  }
+  var palOpen = false;
+  var palSel = 0;
+  var palItems = [];
+  var palCanvasCommands = false;
+  var palTrap = null;
+  function initPalette() {
+    paletteEl.addEventListener("mousedown", function(e) {
+      if (e.target === paletteEl) closePalette();
+    });
+    palText.addEventListener("input", function() {
+      renderPalette(palText.value);
+    });
+    palText.addEventListener("keydown", onPaletteKeydown);
+    palResults.addEventListener("click", onPaletteClick);
+    palResults.addEventListener("mousemove", onPaletteMousemove);
+  }
+  function togglePalette() {
+    if (palOpen) closePalette();
+    else openPalette();
+  }
+  function openPalette() {
+    palOpen = true;
+    palCanvasCommands = mode === "canvas";
+    paletteHooks.hideAsk();
+    paletteHooks.hidePeek();
+    paletteHooks.closeShare();
+    paletteHooks.hideConfirm();
+    paletteEl.classList.add("visible");
+    palText.value = "";
+    renderPalette("");
+    if (palTrap) palTrap();
+    palTrap = activateFocusTrap(paletteEl, { initialFocus: palText, onEscape: closePalette });
+  }
+  function closePalette() {
+    palOpen = false;
+    palCanvasCommands = false;
+    paletteEl.classList.remove("visible");
+    if (palTrap) {
+      palTrap();
+      palTrap = null;
+    }
+    palText.blur();
+  }
+  function onPaletteKeydown(e) {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      closePalette();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      movePalSel(1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      movePalSel(-1);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      commitPal("keyboard");
+    }
+  }
+  function renderPalette(q) {
+    var tokens = q.toLowerCase().split(/\s+/).filter(function(t2) {
+      return !!t2;
+    });
+    var scored = [];
+    for (var id in nodes) {
+      var n = nodes[id];
+      var title = (n.title || "").toLowerCase();
+      var ask2 = ((n.origin && n.origin.selected_text || "") + " " + (n.origin && n.origin.question || "")).toLowerCase();
+      var body = getPlain(n).toLowerCase();
+      var score = 0, ok = true;
+      for (var i2 = 0; i2 < tokens.length; i2++) {
+        var t = tokens[i2];
+        if (title.indexOf(t) !== -1) score += title.indexOf(t) === 0 ? 40 : 30;
+        else if (ask2.indexOf(t) !== -1) score += 15;
+        else if (body.indexOf(t) !== -1) score += 5;
+        else {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) continue;
+      scored.push({ n, score });
+    }
+    scored.sort(function(a, b) {
+      return b.score - a.score || (b.n._order || 0) - (a.n._order || 0);
+    });
+    scored = scored.slice(0, 12);
+    palItems = scored.map(function(s) {
+      return { type: "node", id: s.n.id };
+    }).concat(paletteCommandItems(tokens));
+    palSel = 0;
+    if (!palItems.length) {
+      palResults.innerHTML = tokens.length ? '<div class="pal-empty">Nothing in this hole matches that.</div>' : "";
+      return;
+    }
+    var html2 = "";
+    palItems.forEach(function(item, i3) {
+      if (item.type === "command") {
+        html2 += '<div class="pal-item pal-command' + (i3 === palSel ? " sel" : "") + '" data-idx="' + i3 + '">';
+        html2 += '<div class="pal-t"><span class="pal-title">' + esc(item.name) + '</span><kbd class="pal-kbd">' + esc(item.kbd) + "</kbd></div>";
+        html2 += "</div>";
+        return;
+      }
+      var n2 = nodes[item.id];
+      if (!n2) return;
+      var badge = n2.origin && n2.origin.synthesis ? '<span class="lens-badge">\u2726 Synthesis</span>' : n2.origin && n2.origin.lens ? lensBadgeHtml(n2.origin.lens) : "";
+      var flags = n2.status === "pending" ? '<span class="pal-writing">writing\u2026</span>' : isUnread(n2) ? '<span class="pal-dot"></span>' : "";
+      html2 += '<div class="pal-item' + (i3 === palSel ? " sel" : "") + '" data-idx="' + i3 + '">';
+      html2 += '<div class="pal-t">' + flags + '<span class="pal-title">' + esc(n2.title || "Untitled") + "</span>" + badge + "</div>";
+      html2 += '<div class="pal-s">' + palSnippet(n2, tokens) + "</div>";
+      html2 += "</div>";
+    });
+    palResults.innerHTML = html2;
+  }
+  function paletteCommandItems(tokens) {
+    if (!palCanvasCommands) return [];
+    var commands = [
+      { type: "command", name: "Frame everything", kbd: "F", run: function() {
+        frameAll(true, "keyboard");
+      } },
+      { type: "command", name: "Tidy up layout", kbd: "T", run: function() {
+        tidy("keyboard");
+      } }
+    ];
+    var out = [];
+    for (var i2 = 0; i2 < commands.length; i2++) {
+      var c2 = commands[i2];
+      var name = c2.name.toLowerCase();
+      var ok = true;
+      for (var t = 0; t < tokens.length; t++) {
+        if (name.indexOf(tokens[t]) === -1) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) out.push(c2);
+    }
+    return out;
+  }
+  function palSnippet(n, tokens) {
+    var body = getPlain(n);
+    var lower = body.toLowerCase();
+    for (var i2 = 0; i2 < tokens.length; i2++) {
+      var at = lower.indexOf(tokens[i2]);
+      if (at !== -1) {
+        var start = Math.max(0, at - 34);
+        var slice = (start > 0 ? "\u2026" : "") + body.slice(start, start + 120);
+        return hiTokens(slice, tokens);
+      }
+    }
+    var quote = n.origin && n.origin.selected_text;
+    if (quote) return "\u201C" + hiTokens(truncate2(quote, 90), tokens) + "\u201D";
+    var q = n.origin && n.origin.question;
+    if (q) return hiTokens(truncate2(q, 100), tokens);
+    return esc(truncate2(body, 100));
+  }
+  function hiTokens(text2, tokens) {
+    if (!tokens.length) return esc(text2);
+    var lower = text2.toLowerCase(), out = "", i2 = 0;
+    while (i2 < text2.length) {
+      var best = -1, bl = 0;
+      for (var t = 0; t < tokens.length; t++) {
+        var at = lower.indexOf(tokens[t], i2);
+        if (at !== -1 && (best === -1 || at < best)) {
+          best = at;
+          bl = tokens[t].length;
+        }
+      }
+      if (best === -1) {
+        out += esc(text2.slice(i2));
+        break;
+      }
+      out += esc(text2.slice(i2, best)) + "<mark>" + esc(text2.slice(best, best + bl)) + "</mark>";
+      i2 = best + bl;
+    }
+    return out;
+  }
+  function movePalSel(delta) {
+    if (!palItems.length) return;
+    palSel = Math.max(0, Math.min(palItems.length - 1, palSel + delta));
+    var items = palResults.querySelectorAll(".pal-item");
+    for (var i2 = 0; i2 < items.length; i2++) items[i2].classList.toggle("sel", i2 === palSel);
+    if (items[palSel]) items[palSel].scrollIntoView({ block: "nearest" });
+  }
+  function commitPal(source2) {
+    var item = palItems[palSel];
+    if (!item) return;
+    if (item.type === "command") {
+      item.run();
+      closePalette();
+      return;
+    }
+    var node = nodes[item.id];
+    closePalette();
+    if (node) goToNode2(node, source2);
+  }
+  function onPaletteClick(e) {
+    var it = e.target.closest(".pal-item");
+    if (!it) return;
+    palSel = Number(it.dataset.idx) || 0;
+    commitPal(motionSourceFromEvent(e));
+  }
+  function onPaletteMousemove(e) {
+    var it = e.target.closest(".pal-item");
+    if (!it) return;
+    var idx = Number(it.dataset.idx) || 0;
+    if (idx !== palSel) {
+      palSel = idx;
+      var items = palResults.querySelectorAll(".pal-item");
+      for (var i2 = 0; i2 < items.length; i2++) items[i2].classList.toggle("sel", i2 === palSel);
+    }
+  }
+
+  // src/core/html/shell.js
+  var CANVAS_SHELL = `
+<div id="reader">
+  <div id="reader-top">
+    <div id="breadcrumb"></div>
+    <button class="activity" id="act-reader" title="Jump to it"></button>
+    <button class="tool-btn" id="r-textdown" title="Smaller text">A\u2212</button>
+    <button class="tool-btn" id="r-textup" title="Larger text">A+</button>
+    <button class="tool-btn" id="r-canvas" title="Open the spatial canvas">\u2922 Canvas</button>
+    <button class="tool-btn" id="r-share" title="Share, export, synthesize">\u2197 Share</button>
+    <button class="tool-btn" id="r-theme" title="Toggle theme">\u25D1</button>
+    <button class="tool-btn" id="r-done" title="End the session (the hole stays saved)">Done</button>
+  </div>
+  <div id="since"><span class="since-dot"></span><span class="since-msg" id="since-msg"></span><button class="tool-btn" id="since-show">Show me</button><button id="since-x" title="Dismiss">\xD7</button></div>
+  <div id="reader-cols">
+    <div id="reader-center">
+      <div id="reader-main"></div>
+      <div id="composer">
+        <div class="composer-inner" id="composer-inner">
+          <textarea id="composer-text" rows="1" placeholder="Ask a follow-up about this document\u2026"></textarea>
+          <button id="composer-send" class="send-btn" title="Send (\u21B5)" disabled><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 12.8V3.6M8 3.6 3.9 7.7M8 3.6l4.1 4.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+      </div>
+    </div>
+    <div id="reader-side"></div>
+  </div>
+</div>
+
+<div id="viewport"><div id="world"><svg id="edges"></svg></div></div>
+<div id="toolbar">
+  <button class="tool-btn" id="t-reader" title="Back to reading"><svg width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" aria-hidden="true"><path d="M3.75 3.25h4.5c1 0 1.8.8 1.8 1.8v7.7H5.15c-.77 0-1.4-.63-1.4-1.4z"/><path d="M5.15 12.75c-.77 0-1.4-.63-1.4-1.4s.63-1.4 1.4-1.4h4.9"/></svg>Reader</button>
+  <span class="sep"></span>
+  <button class="tool-btn tool-icon" id="t-zout" title="Zoom out" aria-label="Zoom out">\u2212</button>
+  <button class="tool-btn" id="zoom-label" title="Zoom to 100%" aria-label="Zoom to 100%">100%</button>
+  <button class="tool-btn tool-icon" id="t-zin" title="Zoom in" aria-label="Zoom in">+</button>
+  <button class="tool-btn tool-icon" id="t-frame" title="Frame everything \xB7 F" aria-label="Frame everything \xB7 F"><svg width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" aria-hidden="true"><path d="M5.8 3.25H3.25V5.8"/><path d="M10.2 3.25h2.55V5.8"/><path d="M12.75 10.2v2.55H10.2"/><path d="M5.8 12.75H3.25V10.2"/></svg></button>
+  <span class="sep"></span>
+  <button class="tool-btn tool-icon" id="t-tidy" title="Tidy up layout \xB7 T" aria-label="Tidy up layout \xB7 T"><svg width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" aria-hidden="true"><rect x="6.25" y="2.5" width="3.5" height="2.75" rx="0.7"/><rect x="2.75" y="10.75" width="3.5" height="2.75" rx="0.7"/><rect x="9.75" y="10.75" width="3.5" height="2.75" rx="0.7"/><path d="M8 5.25v2.25"/><path d="M4.5 7.5h7"/><path d="M4.5 7.5v3.25"/><path d="M11.5 7.5v3.25"/></svg></button>
+  <span class="sep"></span>
+  <button class="tool-btn tool-icon" id="t-share" title="Share, export, synthesize" aria-label="Share, export, synthesize">\u2197</button>
+  <button class="tool-btn tool-icon" id="t-theme" title="Toggle theme" aria-label="Toggle theme">\u25D1</button>
+  <span class="sep" id="act-sep" style="display:none"></span>
+  <button class="activity" id="act-canvas" title="Jump to it"></button>
+</div>
+
+<div id="ask">
+  <div class="ask-input">
+    <textarea id="ask-text" rows="1" placeholder="Ask about this\u2026"></textarea>
+    <button class="send-btn" id="ask-go" title="Ask (\u21B5)"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 12.8V3.6M8 3.6 3.9 7.7M8 3.6l4.1 4.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+  </div>
+  <!-- Lens buttons are rendered client-side from the config-driven LENSES
+       (see ui/ask-followups.js renderLensButtons). -->
+  <div class="ask-lenses" id="ask-lenses"></div>
+  <!-- Shown only when the host wires the matching handler (the /app workspace):
+       write a human note on this selection, or drop a PDF/markdown source in
+       as a branch of it. -->
+  <div class="ask-attach-row" id="ask-attach-row"><button class="ask-note" id="ask-note" type="button">\u270E Write a note instead</button><button class="ask-attach" id="ask-attach" type="button">\u2295 Attach a document here (.pdf / .md)</button></div>
+</div>
+
+<div id="palette"><div id="palette-panel">
+  <div class="pal-input">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+    <input id="pal-text" placeholder="Search this Rabbithole\u2026" autocomplete="off" spellcheck="false">
+    <kbd>esc</kbd>
+  </div>
+  <div id="pal-results"></div>
+</div></div>
+
+<div id="peek"></div>
+
+<div id="sharemenu">
+  <button class="sm-item" id="sm-trail"><span class="sm-ic">\u2937</span>Copy trail as Markdown</button>
+  <button class="sm-item" id="sm-doc"><span class="sm-ic">\u29C9</span>Copy document as Markdown</button>
+  <div class="sm-sep"></div>
+  <button class="sm-item" id="sm-export"><span class="sm-ic">\u21E9</span>Download snapshot (.html)</button>
+  <div class="sm-sep" id="sm-sep2"></div>
+  <button class="sm-item" id="sm-synth"><span class="sm-ic">\u2726</span>Synthesize this journey</button>
+</div>
+
+<div id="confirm">
+  <div class="cf-msg" id="cf-msg"></div>
+  <div class="cf-row"><button id="cf-keep">Keep</button><button class="cf-remove" id="cf-remove">Remove</button></div>
+</div>
+
+<div id="banner"><div class="banner-body"><span class="banner-title" id="banner-title"></span><span id="banner-msg"></span></div><button id="banner-x" title="Dismiss">\xD7</button></div>
+<div id="hint"></div>
+`;
+
+  // src/ui/snapshot.js
+  var ASSET_REF_RE = /asset:([a-z0-9][a-z0-9_-]*\.(?:png|jpe?g|gif|webp|svg))/gi;
+  var snapshotHooks = {
+    fetchAssetData: null,
+    getFrozenClientSource: null,
+    getDompurifySource: null
+  };
+  function escapeHtml2(str) {
+    return String(str != null ? str : "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function serializeForInlineScript(value) {
+    return JSON.stringify(value).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+  }
+  function snapshotViewState() {
+    var cur = nodes[currentNodeId];
+    var scroll = mode === "reader" ? readerMain.scrollTop : cur && cur._scrollTop || 0;
+    return {
+      mode,
+      node_id: currentNodeId,
+      scroll,
+      view: { x: view.x, y: view.y, scale: view.scale }
+    };
+  }
+  function serializeSnapshotNodes() {
+    return Object.keys(nodes).map(function(id) {
+      var n = nodes[id];
+      return {
+        id: n.id,
+        parent_id: n.parent_id || null,
+        title: n.title || "",
+        markdown: n.md || "",
+        base_url: n.base_url || null,
+        base_url_source: n.base_url_source || null,
+        origin: n.origin || null,
+        position: { x: n.x || 0, y: n.y || 0 },
+        size: { w: n.w, h: n.h },
+        font_scale: n.font_scale || 1,
+        collapsed: !!n.collapsed,
+        status: n.status || "answered",
+        read: !!n.read
+      };
+    });
+  }
+  function collectAssetNames(snapshotNodes) {
+    var names = {};
+    snapshotNodes.forEach(function(node) {
+      var source2 = String(node.markdown || "");
+      var match;
+      ASSET_REF_RE.lastIndex = 0;
+      while (match = ASSET_REF_RE.exec(source2)) names[match[1]] = true;
+    });
+    return Object.keys(names).sort();
+  }
+  function blobToDataUrl(blob) {
+    return new Promise(function(resolve) {
+      var reader = new FileReader();
+      reader.onload = function() {
+        resolve(String(reader.result || "data:,"));
+      };
+      reader.onerror = function() {
+        resolve("data:,");
+      };
+      reader.readAsDataURL(blob);
+    });
+  }
+  async function fetchAssetData(name) {
+    if (typeof snapshotHooks.fetchAssetData === "function") {
+      try {
+        var hooked = await snapshotHooks.fetchAssetData(name);
+        if (hooked) return hooked;
+      } catch (e) {
+      }
+    }
+    try {
+      var slash = String.fromCharCode(47);
+      var res = await fetch(slash + "assets" + slash + name, { cache: "no-store" });
+      if (!res.ok) return "data:,";
+      return await blobToDataUrl(await res.blob());
+    } catch (e) {
+      return "data:,";
+    }
+  }
+  async function buildAssetData(snapshotNodes) {
+    var out = {};
+    var names = collectAssetNames(snapshotNodes);
+    for (var i2 = 0; i2 < names.length; i2++) out[names[i2]] = await fetchAssetData(names[i2]);
+    return out;
+  }
+  function extractDompurifySource() {
+    if (typeof snapshotHooks.getDompurifySource === "function") {
+      return snapshotHooks.getDompurifySource() || "";
+    }
+    var script2 = document.scripts && document.scripts[0] ? document.scripts[0].textContent || "" : "";
+    var marker = "\n(function(){";
+    var idx = script2.indexOf(marker);
+    return idx === -1 ? "" : script2.slice(0, idx);
+  }
+  async function buildSnapshotHydration() {
+    var snapshotNodes = serializeSnapshotNodes();
+    var authorHydration = deriveAuthorHydration(snapshotNodes);
+    return {
+      session_id: hydration.session_id || null,
+      hole_id: hydration.hole_id || null,
+      title: hydration.title || "Clew",
+      root_id: rootId,
+      last_event_id: 0,
+      agent_attached: false,
+      view_state: snapshotViewState(),
+      frozen: true,
+      asset_data: await buildAssetData(snapshotNodes),
+      nodes: snapshotNodes,
+      ...authorHydration || {}
+    };
+  }
+  function buildSnapshotHtml(snapshotHydration) {
+    var _a2;
+    var title = snapshotHydration && snapshotHydration.title || "Clew";
+    var styleText = ((_a2 = document.querySelector("style")) == null ? void 0 : _a2.textContent) || "";
+    var dompurifySource = extractDompurifySource();
+    var frozenClient = typeof snapshotHooks.getFrozenClientSource === "function" ? snapshotHooks.getFrozenClientSource() : window.__RABBITHOLE_FROZEN_CLIENT__;
+    if (!frozenClient) throw new Error("Frozen client bundle is unavailable");
+    var lt = String.fromCharCode(60);
+    var gt = String.fromCharCode(62);
+    var scriptOpen = lt + "script" + gt;
+    var scriptClose = lt + String.fromCharCode(47) + "script" + gt;
+    return '<!DOCTYPE html>\n<html lang="en" data-theme="light">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n<title>' + escapeHtml2(title) + "</title>\n<style>\n" + styleText + "\n</style>\n</head>\n<body>\n" + CANVAS_SHELL + "\n" + scriptOpen + "\n" + dompurifySource + '\n(function(){\n  "use strict";\n  var hydration = ' + serializeForInlineScript(snapshotHydration) + ";\n" + frozenClient + "\n  RabbitholeFrozenClient.startRabbithole(hydration);\n})();\n" + scriptClose + "\n</body>\n</html>";
+  }
+  function exportFilename(title) {
+    var slug = String(title || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+    return "rabbithole-" + (slug || "export") + ".html";
+  }
+  async function downloadSnapshot() {
+    var snapshotHydration = await buildSnapshotHydration();
+    var html2 = buildSnapshotHtml(snapshotHydration);
+    var blob = new Blob([html2], { type: "text/html;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = exportFilename(snapshotHydration.title);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function() {
+      URL.revokeObjectURL(url);
+    }, 3e4);
+    return html2;
+  }
+
+  // src/ui/branch-surfaces.js
+  var branchHooks = {
+    post: function() {
+      return Promise.resolve({ ok: true });
+    }
+  };
+  function registerBranchHooks(hooks) {
+    Object.assign(branchHooks, hooks || {});
+  }
+  var peekTimer = 0;
+  var peekFor = null;
+  function initBranchSurfaces() {
+    readerMain.addEventListener("mouseover", onReaderMarkMouseover);
+    readerMain.addEventListener("mouseout", onReaderMarkMouseout);
+    peekEl.addEventListener("mouseleave", function() {
+      hidePeek();
+    });
+    peekEl.addEventListener("click", function() {
+      var kid = peekFor && nodes[peekFor];
+      hidePeek();
+      if (kid) openNode(kid.id);
+    });
+    document.getElementById("r-share").addEventListener("click", function(e) {
+      e.stopPropagation();
+      toggleShare(e.currentTarget);
+    });
+    document.getElementById("t-share").addEventListener("click", function(e) {
+      e.stopPropagation();
+      toggleShare(e.currentTarget);
+    });
+    document.getElementById("sm-doc").addEventListener("click", onCopyDoc);
+    document.getElementById("sm-trail").addEventListener("click", onCopyTrail);
+    document.getElementById("sm-export").addEventListener("click", onExportSnapshot);
+    document.getElementById("sm-synth").addEventListener("click", function(e) {
+      closeShare();
+      synthesize(motionSourceFromEvent(e));
+    });
+    document.getElementById("cf-keep").addEventListener("click", hideConfirm);
+    document.getElementById("cf-remove").addEventListener("click", function() {
+      var node = confirmFor && nodes[confirmFor];
+      hideConfirm();
+      if (node) deleteBranch(node);
+    });
+  }
+  function hidePeek() {
+    if (peekTimer) {
+      clearTimeout(peekTimer);
+      peekTimer = 0;
+    }
+    peekFor = null;
+    peekEl.classList.remove("visible");
+  }
+  function showPeek(mark) {
+    var kid = nodes[mark.dataset.child];
+    if (!kid || kid.status !== "answered") return;
+    peekFor = kid.id;
+    var badge = kid.origin && kid.origin.synthesis ? '<span class="lens-badge">\u2726 Synthesis</span>' : kid.origin && kid.origin.lens ? lensBadgeHtml(kid.origin.lens) : "";
+    peekEl.innerHTML = '<div class="peek-title">' + (isUnread(kid) ? '<span class="pal-dot"></span>' : "") + "<span>" + esc(kid.title || "Untitled") + "</span>" + badge + '</div><div class="peek-body md">' + (kid.html || "") + '</div><div class="peek-hint">Click to open</div>';
+    if (typeof mountVisuals === "function") {
+      var peekBody = peekEl.querySelector(".peek-body");
+      if (peekBody) mountVisuals(peekBody, "peek:" + kid.id);
+    }
+    var r2 = mark.getBoundingClientRect();
+    var top = r2.bottom + 8;
+    if (top + peekEl.offsetHeight + 10 > window.innerHeight) top = Math.max(10, r2.top - peekEl.offsetHeight - 8);
+    peekEl.style.left = Math.min(window.innerWidth - 360, Math.max(10, r2.left)) + "px";
+    peekEl.style.top = top + "px";
+    peekEl.classList.add("visible");
+    setSurfaceOrigin(peekEl, r2);
+  }
+  function onReaderMarkMouseover(e) {
+    var m = e.target.closest && e.target.closest("mark[data-child]");
+    if (!m) return;
+    var kid = nodes[m.dataset.child];
+    if (!kid || kid.status !== "answered") return;
+    if (peekTimer) clearTimeout(peekTimer);
+    peekTimer = setTimeout(function() {
+      peekTimer = 0;
+      showPeek(m);
+    }, 220);
+  }
+  function onReaderMarkMouseout(e) {
+    var m = e.target.closest && e.target.closest("mark[data-child]");
+    if (!m) return;
+    if (peekTimer) {
+      clearTimeout(peekTimer);
+      peekTimer = 0;
+    }
+    setTimeout(function() {
+      if (!peekEl.matches(":hover") && !readerMain.querySelector("mark[data-child]:hover")) hidePeek();
+    }, 80);
+  }
+  var shareOpen = false;
+  var shareTrap = null;
+  function toggleShare(anchor) {
+    if (shareOpen) {
+      closeShare();
+      return;
+    }
+    var noAgent = frozen || closed;
+    document.getElementById("sm-export").style.display = frozen ? "none" : "";
+    document.getElementById("sm-sep2").style.display = noAgent ? "none" : "";
+    document.getElementById("sm-synth").style.display = noAgent ? "none" : "";
+    var r2 = anchor.getBoundingClientRect();
+    shareMenu.style.left = Math.min(window.innerWidth - shareMenu.offsetWidth - 10, Math.max(10, r2.right - shareMenu.offsetWidth)) + "px";
+    shareMenu.style.top = r2.bottom + 8 + "px";
+    shareOpen = true;
+    shareMenu.classList.add("visible");
+    setSurfaceOrigin(shareMenu, r2);
+    if (shareTrap) shareTrap();
+    shareTrap = activateFocusTrap(shareMenu, {
+      initialFocus: shareMenu.querySelector("button"),
+      onEscape: closeShare
+    });
+  }
+  function closeShare() {
+    shareOpen = false;
+    shareMenu.classList.remove("visible");
+    if (shareTrap) {
+      shareTrap();
+      shareTrap = null;
+    }
+  }
+  function copyText(text2, okMsg) {
+    function done() {
+      flashHint(okMsg);
+    }
+    function legacy() {
+      var ta = document.createElement("textarea");
+      ta.value = text2;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand("copy");
+      } catch (err) {
+      }
+      document.body.removeChild(ta);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text2).then(done, function() {
+        legacy();
+        done();
+      });
+    } else {
+      legacy();
+      done();
+    }
+  }
+  function originLine(n) {
+    if (!n.origin) return "";
+    if (n.origin.synthesis) return "> \u2726 Synthesis of the whole Rabbithole\n\n";
+    var ask2 = n.origin.lens ? lensLabel2(n.origin.lens) : n.origin.question || "";
+    if (n.origin.selected_text) return "> Asked about: \u201C" + n.origin.selected_text + "\u201D" + (ask2 ? " \u2014 " + ask2 : "") + "\n\n";
+    return ask2 ? "> Follow-up \u2014 " + ask2 + "\n\n" : "";
+  }
+  function docMarkdown(n, depth) {
+    var h = "#";
+    for (var i2 = 0; i2 < Math.min(depth, 3); i2++) h += "#";
+    var body = (n.md || "").trim() || "_(still being written)_";
+    return h + " " + (n.title || "Untitled") + "\n\n" + originLine(n) + body + "\n";
+  }
+  function trailMarkdown(id) {
+    var path2 = lineageNodes(id), parts = [];
+    for (var i2 = 0; i2 < path2.length; i2++) parts.push(docMarkdown(path2[i2], i2));
+    return parts.join("\n---\n\n");
+  }
+  function onCopyDoc() {
+    closeShare();
+    var n = nodes[currentNodeId];
+    if (!n) return;
+    copyText(docMarkdown(n, 0), "Copied \u201C" + truncate2(n.title || "Untitled", 40) + "\u201D as Markdown");
+  }
+  function onCopyTrail() {
+    closeShare();
+    var path2 = lineageNodes(currentNodeId);
+    copyText(trailMarkdown(currentNodeId), path2.length === 1 ? "Copied this document as Markdown" : "Copied the trail \u2014 " + path2.length + " documents");
+  }
+  function onExportSnapshot() {
+    closeShare();
+    flashHint("Preparing snapshot...");
+    downloadSnapshot().then(function() {
+      flashHint("Snapshot downloading \u2014 a single file that opens anywhere.");
+    }, function() {
+      flashHint("Couldn't prepare the snapshot.");
+    });
+  }
+  function synthesize(source2) {
+    if (closed) {
+      flashHint("Session ended \u2014 reopen this Rabbithole from your terminal first.");
+      return;
+    }
+    var root = nodes[rootId];
+    if (!root) return;
+    for (var k in nodes) {
+      var n = nodes[k];
+      if (n.status === "pending" && n.origin && n.origin.synthesis) {
+        flashHint("A synthesis is already being written\u2026");
+        goToNode(n, source2);
+        return;
+      }
+    }
+    var q = "Step back and write the synthesis of this whole Rabbithole so far: the key ideas we explored, how they connect, and the takeaways worth keeping. Make it a standalone summary of the journey.";
+    var kid = sendFollowup(root, q, null, true);
+    if (mode === "canvas") revealNode(kid, source2);
+    flashHint("\u2726 Synthesizing this journey \u2014 it will appear as a branch of the root document.");
+  }
+  var confirmFor = null;
+  function confirmDelete(node, anchor) {
+    if (closed) {
+      flashHint(frozen ? "This is a read-only snapshot." : "Session ended \u2014 changes can't be saved anymore.");
+      return;
+    }
+    confirmFor = node.id;
+    var subCount = countSubtree(node.id) - 1;
+    document.getElementById("cf-msg").textContent = subCount > 0 ? "Remove this branch and " + subCount + " inside it?" : "Remove this branch?";
+    var r2 = anchor.getBoundingClientRect();
+    confirmEl.style.left = Math.min(window.innerWidth - confirmEl.offsetWidth - 10, Math.max(10, r2.right - confirmEl.offsetWidth)) + "px";
+    confirmEl.style.top = r2.bottom + 8 + "px";
+    confirmEl.classList.add("visible");
+    setSurfaceOrigin(confirmEl, r2);
+  }
+  function hideConfirm() {
+    confirmFor = null;
+    confirmEl.classList.remove("visible");
+  }
+  function countSubtree(id) {
+    var c2 = 1;
+    childrenOf(id).forEach(function(k) {
+      c2 += countSubtree(k.id);
+    });
+    return c2;
+  }
+  function collectSubtree(id, out) {
+    out.push(id);
+    childrenOf(id).forEach(function(k) {
+      collectSubtree(k.id, out);
+    });
+    return out;
+  }
+  function deleteBranch(node) {
+    var title = node.title || "Untitled";
+    var ids = collectSubtree(node.id, []);
+    branchHooks.post({ type: "delete_node", node_id: node.id });
+    removeNodesLocal(ids, node.parent_id);
+    flashHint(ids.length > 1 ? "Removed \u201C" + truncate2(title, 40) + "\u201D and " + (ids.length - 1) + " inside it" : "Removed \u201C" + truncate2(title, 40) + "\u201D");
+  }
+  function removeNodesLocal(ids, parentId) {
+    var currentGone = false;
+    for (var i2 = 0; i2 < ids.length; i2++) {
+      var id = ids[i2], n = nodes[id];
+      if (!n) continue;
+      if (currentNodeId === id) currentGone = true;
+      if (n.el && n.el.parentNode) n.el.parentNode.removeChild(n.el);
+      removeMarks(readerMain, id);
+      removeThreadItem(id);
+      var p = nodes[n.parent_id];
+      if (p && p.bodyEl) removeMarks(p.bodyEl, id);
+      clearEdgeHighlight(id);
+      delete nodes[id];
+    }
+    if (currentGone) {
+      setCurrentNodeId(parentId && nodes[parentId] ? parentId : rootId);
+      if (mode === "reader") openNode(currentNodeId);
+    }
+    if (canvasBuilt) {
+      renderVisibility();
+      drawEdges();
+    }
+    if (mode === "reader") {
+      renderBreadcrumb();
+      renderSidebar();
+    }
+    refreshAmbient();
+    updateSince();
   }
 
   // src/ui/hydrate.js

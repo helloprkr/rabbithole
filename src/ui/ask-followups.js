@@ -1,5 +1,7 @@
 import {
+  BRANCH_DEFINITION,
   BRANCH_FOLLOWUP,
+  BRANCH_NOTE,
   BRANCH_SELECTION,
   DEFAULT_CHILD,
   LENSES,
@@ -56,6 +58,7 @@ import {
   renderSidebar,
   wrapInContainer
 } from "./reader.js";
+import { refreshNodeHtml } from "./renderer.js";
 
 var askHooks = {
   post: function(){ return Promise.resolve({ ok: true }); },
@@ -64,13 +67,22 @@ var askHooks = {
   hidePeek: function(){},
   // Optional: attach a document (pdf/md) as a branch of the current selection.
   // Only the /app web workspace wires this; absent → the button never shows.
-  attach: null
+  attach: null,
+  // Optional: place a human-written note node (no AI). Receives the fully-built
+  // node; the /app workspace persists + syncs it. Absent → the button never shows.
+  note: null
 };
 
 export function registerAskHooks(hooks) {
   Object.assign(askHooks, hooks || {});
   var row = document.getElementById("ask-attach-row");
-  if (row) row.classList.toggle("available", typeof askHooks.attach === "function");
+  var hasAttach = typeof askHooks.attach === "function";
+  var hasNote = typeof askHooks.note === "function";
+  if (row) row.classList.toggle("available", hasAttach || hasNote);
+  var attachBtn = document.getElementById("ask-attach");
+  if (attachBtn) attachBtn.style.display = hasAttach ? "" : "none";
+  var noteBtn = document.getElementById("ask-note");
+  if (noteBtn) noteBtn.style.display = hasNote ? "" : "none";
 }
 
   // ===========================================================================
@@ -85,7 +97,13 @@ export function initAskFollowups(){
     if (inAsk(e)) return;
     hideAsk();
   });
-  document.addEventListener("mouseup", function(e){ if (inAsk(e)) return; setTimeout(maybeShowAsk, 0); });
+  document.addEventListener("mouseup", function(e){
+    if (inAsk(e)) return;
+    // ⌘ held through the selection = "define this": the node pops out directly,
+    // no popup. Read the modifier now — it's gone by the time the timeout runs.
+    var defineIntent = !!e.metaKey;
+    setTimeout(function(){ maybeShowAsk(defineIntent); }, 0);
+  });
   askGo.addEventListener("click", function(e){ submitAsk(null, motionSourceFromEvent(e)); });
   // The lens buttons are config-driven (Warren patch 1): shell.js ships an empty
   // #ask-lenses; fill it from the shared LENS_ORDER (built-in four unless a config
@@ -103,6 +121,11 @@ export function initAskFollowups(){
                 anchor: { offset_start: pendingAsk.startOff, offset_end: pendingAsk.endOff } };
     hideAsk();
     askHooks.attach(req);
+  });
+  var noteBtn = document.getElementById("ask-note");
+  if (noteBtn) noteBtn.addEventListener("click", function(e){
+    e.preventDefault();
+    setAskMode(askMode === "note" ? "ask" : "note");
   });
   askText.addEventListener("input", function(){ autoGrowEl(askText, 110); });
   askText.addEventListener("keydown", onAskTextKeydown);
@@ -134,7 +157,7 @@ function inAsk(e){ return e.target && e.target.closest && e.target.closest("#ask
     box.innerHTML = html;
   }
 
-  function maybeShowAsk(){
+  function maybeShowAsk(defineIntent){
     var sel = window.getSelection();
     if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
     var anchor = sel.anchorNode && sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentNode : sel.anchorNode;
@@ -159,9 +182,15 @@ function inAsk(e){ return e.target && e.target.closest && e.target.closest("#ask
     if (endOff <= startOff) return;
     pendingAsk = { parentId: parentId, container: dc, selectedText: sel.toString().trim(),
                    startOff: startOff, endOff: endOff, range: range.cloneRange() };
+    // ⌘+select → a definition card pops straight out, no popup. Local to this
+    // member: word lookups never crowd the team canvas.
+    if (defineIntent){
+      submitDefinition("pointer");
+      return;
+    }
     paintAskHighlight(pendingAsk.range);
+    setAskMode("ask");
     askText.value = "";
-    askText.placeholder = "Ask about this…";
     var rect = range.getBoundingClientRect();
     ask.style.left = Math.min(window.innerWidth - 392, Math.max(10, rect.left)) + "px";
     ask.style.top = Math.min(window.innerHeight - 200, rect.bottom + 8) + "px";
@@ -172,7 +201,24 @@ function inAsk(e){ return e.target && e.target.closest && e.target.closest("#ask
     askText.focus();
   }
   var pendingAsk = null;
-export function hideAsk(){ ask.classList.remove("visible"); pendingAsk = null; clearAskHighlight(); }
+  // "ask" (question/lens → AI) or "note" (the human's own words, no AI).
+  var askMode = "ask";
+  function setAskMode(m){
+    askMode = m === "note" ? "note" : "ask";
+    ask.classList.toggle("note-mode", askMode === "note");
+    var noteBtn = document.getElementById("ask-note");
+    if (noteBtn) noteBtn.textContent = askMode === "note" ? "↩ Ask AI instead" : "✎ Write a note instead";
+    askText.placeholder = askMode === "note" ? "Your note on this — just you, no AI…" : "Ask about this…";
+    askGo.title = askMode === "note" ? "Place note (↵)" : "Ask (↵)";
+    if (ask.classList.contains("visible")) askText.focus();
+  }
+export function hideAsk(){
+  ask.classList.remove("visible");
+  ask.classList.remove("note-mode");
+  askMode = "ask";
+  pendingAsk = null;
+  clearAskHighlight();
+}
   // Custom Highlight API — keeps the selected text visibly marked while the popup
   // has focus. Best-effort: browsers without it just fall back to today's look.
   function paintAskHighlight(range){
@@ -193,13 +239,14 @@ export function hideAsk(){ ask.classList.remove("visible"); pendingAsk = null; c
     else if (e.key === "Escape"){ hideAsk(); }
     // Number keys are lens shortcuts only while the box is empty — once the
     // human starts typing a question, digits are just digits.
-    else if (askText.value === "" && !e.metaKey && !e.ctrlKey && !e.altKey && lensForDigit(e.key)){
+    else if (askMode === "ask" && askText.value === "" && !e.metaKey && !e.ctrlKey && !e.altKey && lensForDigit(e.key)){
       e.preventDefault();
       submitAsk(lensForDigit(e.key), "keyboard");
     }
   }
 
   function submitAsk(lensKey, source){
+    if (askMode === "note" && !lensKey){ submitNote(source); return; }
     if (!pendingAsk || closed) return;
     var parent = nodes[pendingAsk.parentId];
     if (!parent){ hideAsk(); return; }
@@ -244,6 +291,98 @@ export function hideAsk(){ ask.classList.remove("visible"); pendingAsk = null; c
     // pan just enough that you see where your question went.
     revealNode(node, source);
     refreshAmbient();
+  }
+
+  // ---------- definition cards (⌘+select) ----------
+  // A per-member dictionary lookup: smaller card, distinct dress, and LOCAL —
+  // origin.local keeps it off the team canvas (sync/merge/ingest all filter it).
+  var DEFINITION_SIZE = { w: 480, h: 380 };
+  function definitionQuestion(term){
+    return 'Define "' + term + '": the precise meaning as used in this passage first, then the general ' +
+      'definition, part of speech, and a one-line etymology or origin if it illuminates. ' +
+      'Compact — a dictionary card, not an essay.';
+  }
+  function submitDefinition(source){
+    if (!pendingAsk || closed) return;
+    var parent = nodes[pendingAsk.parentId];
+    if (!parent){ hideAsk(); return; }
+    var term = pendingAsk.selectedText;
+    var question = definitionQuestion(truncate(term, 120));
+    var requestId = uuid(), childId = uuid();
+    var pos = placeChild(parent, BRANCH_SELECTION, DEFINITION_SIZE);
+    var anchor = { offset_start: pendingAsk.startOff, offset_end: pendingAsk.endOff };
+    var node = {
+      id: childId, parent_id: parent.id,
+      title: truncate(term, 48),
+      html: "", md: "",
+      base_url: parent.base_url || null,
+      base_url_source: parent.base_url ? "inherited" : null,
+      read: false,
+      origin: { selected_text: term, question: question, lens: null, anchor: anchor,
+                branch_type: BRANCH_DEFINITION, local: true, author: selfAuthor || undefined },
+      x: pos.x, y: pos.y, w: DEFINITION_SIZE.w, h: DEFINITION_SIZE.h, font_scale: 1, collapsed: false,
+      status: "pending", _order: nextOrder(), _startTs: Date.now()
+    };
+    nodes[childId] = node;
+    if (canvasBuilt){ createNodeEl(node, true); renderVisibility(); drawEdges(); }
+    if (mode === "reader"){
+      var rdc = readerMain.querySelector('.doc-content[data-node-id="' + parent.id + '"]');
+      wrapInContainer(rdc, anchor, childId, "hl mark-pending");
+      if (currentNodeId === parent.id) renderSidebar();
+    }
+    if (parent.bodyEl){ wrapInContainer(parent.bodyEl.querySelector(".doc-content"), anchor, childId, "hl mark-pending"); scheduleEdges(); }
+    var sel = window.getSelection(); if (sel) sel.removeAllRanges();
+    hideAsk();
+    askHooks.post({ type: "branch_request", request_id: requestId, node_id: childId, parent_id: parent.id,
+           selected_text: term, question: question, lens: null, anchor: anchor,
+           branch_type: BRANCH_DEFINITION, local: true,
+           position: { x: node.x, y: node.y }, size: { w: node.w, h: node.h } })
+      .then(function(res){ if (!res || !res.ok) rollbackBranch(node); });
+    revealNode(node, source);
+    refreshAmbient();
+  }
+
+  // ---------- note cards (human words, no AI) ----------
+  var NOTE_SIZE = { w: 560, h: 420 };
+  function submitNote(source){
+    if (!pendingAsk || closed) return;
+    if (typeof askHooks.note !== "function") return;
+    var text = askText.value.trim();
+    if (!text) return;
+    var parent = nodes[pendingAsk.parentId];
+    if (!parent){ hideAsk(); return; }
+    var childId = uuid();
+    var pos = placeChild(parent, BRANCH_SELECTION, NOTE_SIZE);
+    var anchor = { offset_start: pendingAsk.startOff, offset_end: pendingAsk.endOff };
+    var node = {
+      id: childId, parent_id: parent.id,
+      title: truncate(text, 48),
+      html: "", md: text,
+      base_url: parent.base_url || null,
+      base_url_source: parent.base_url ? "inherited" : null,
+      read: true,
+      origin: { selected_text: pendingAsk.selectedText, question: "", lens: null, anchor: anchor,
+                branch_type: BRANCH_NOTE, author: selfAuthor || undefined },
+      x: pos.x, y: pos.y, w: NOTE_SIZE.w, h: NOTE_SIZE.h, font_scale: 1, collapsed: false,
+      status: "answered", _order: nextOrder()
+    };
+    refreshNodeHtml(node);
+    nodes[childId] = node;
+    if (canvasBuilt){ createNodeEl(node, true); renderVisibility(); drawEdges(); }
+    if (mode === "reader"){
+      var rdc = readerMain.querySelector('.doc-content[data-node-id="' + parent.id + '"]');
+      wrapInContainer(rdc, anchor, childId, "hl mark-ready");
+      if (currentNodeId === parent.id) renderSidebar();
+    }
+    if (parent.bodyEl){ wrapInContainer(parent.bodyEl.querySelector(".doc-content"), anchor, childId, "hl mark-ready"); scheduleEdges(); }
+    var sel = window.getSelection(); if (sel) sel.removeAllRanges();
+    hideAsk();
+    askHooks.note({
+      id: node.id, parent_id: node.parent_id, title: node.title, markdown: node.md,
+      origin: node.origin, position: { x: node.x, y: node.y }, size: { w: node.w, h: node.h },
+      created_at: new Date().toISOString()
+    });
+    revealNode(node, source);
   }
 
   // ---------- follow-up composer ----------
@@ -357,11 +496,11 @@ export function rollbackBranch(node){
 export function subtreeBounds(node){
     return sharedSubtreeBounds(node, { childrenOf: childrenOf, effH: effH, sort: nodeOrder });
   }
-export function placeChild(parent, branchType){
+export function placeChild(parent, branchType, childSize){
     return sharedPlaceChild(parent, branchType, {
       childrenOf: childrenOf,
       effH: effH,
       sort: nodeOrder,
-      childSize: DEFAULT_CHILD
+      childSize: childSize || DEFAULT_CHILD
     });
   }

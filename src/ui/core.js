@@ -1,10 +1,14 @@
 import {
+  BRANCH_DEFINITION,
+  BRANCH_DOCUMENT,
   BRANCH_FOLLOWUP,
+  BRANCH_NOTE,
   BRANCH_SELECTION,
   LENSES,
   LENS_ORDER,
   branchTypeOfNode,
   configureLenses,
+  isLocalOnlyNode,
   lensLabel as sharedLensLabel,
   truncate as sharedTruncate
 } from "../core/model.js";
@@ -21,7 +25,7 @@ import {
 } from "../core/layout.js";
 import { assignAuthorColors } from "../core/team-palette.js";
 
-export { BRANCH_FOLLOWUP, BRANCH_SELECTION, DEFAULT_CHILD, DEFAULT_ROOT, LENSES, LENS_ORDER, TREE_PARENT_GAP, TREE_STACK_GAP };
+export { BRANCH_DEFINITION, BRANCH_DOCUMENT, BRANCH_FOLLOWUP, BRANCH_NOTE, BRANCH_SELECTION, DEFAULT_CHILD, DEFAULT_ROOT, LENSES, LENS_ORDER, TREE_PARENT_GAP, TREE_STACK_GAP, isLocalOnlyNode };
 
 export var SVGNS = "http://www.w3.org/2000/svg";
 export var MIN_SCALE = 0.15, MAX_SCALE = 2.5;

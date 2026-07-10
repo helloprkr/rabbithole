@@ -55,9 +55,10 @@ export const CANVAS_SHELL = `
   <!-- Lens buttons are rendered client-side from the config-driven LENSES
        (see ui/ask-followups.js renderLensButtons). -->
   <div class="ask-lenses" id="ask-lenses"></div>
-  <!-- Shown only when the host wires an attach handler (the /app workspace):
-       drop a PDF/markdown source in as a branch of this selection. -->
-  <div class="ask-attach-row" id="ask-attach-row"><button class="ask-attach" id="ask-attach" type="button">⊕ Attach a document here (.pdf / .md)</button></div>
+  <!-- Shown only when the host wires the matching handler (the /app workspace):
+       write a human note on this selection, or drop a PDF/markdown source in
+       as a branch of it. -->
+  <div class="ask-attach-row" id="ask-attach-row"><button class="ask-note" id="ask-note" type="button">✎ Write a note instead</button><button class="ask-attach" id="ask-attach" type="button">⊕ Attach a document here (.pdf / .md)</button></div>
 </div>
 
 <div id="palette"><div id="palette-panel">

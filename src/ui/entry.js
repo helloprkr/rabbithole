@@ -82,9 +82,11 @@ export function startRabbithole(hydration, options) {
     closeShare: closeShare,
     hideConfirm: hideConfirm,
     hidePeek: hidePeek,
-    // Only the /app web workspace provides this — attaching a document (pdf/md)
-    // as a branch of the current selection. Absent, the button never shows.
-    attach: (options && options.attachDocument) || null
+    // Only the /app web workspace provides these — attaching a document (pdf/md)
+    // as a branch of the current selection, and placing a human note node.
+    // Absent, the buttons never show.
+    attach: (options && options.attachDocument) || null,
+    note: (options && options.placeNote) || null
   });
   registerPaletteHooks({
     hideAsk: hideAsk,

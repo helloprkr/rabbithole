@@ -7,17 +7,21 @@ import { TitleSentinelParser, fallbackTitleForNode, normalizeProviderError } fro
 const SAVE_DEBOUNCE_MS = 400;
 
 export class DirectRabbitholeHost {
-  constructor({ store, hole, brain = null, author = "", onEvent = null, onToast = null, onDone = null, onRestore = null, onNeedsKey = null } = {}) {
+  constructor({ store, hole, brain = null, author = "", clewBacked = false, onEvent = null, onToast = null, onDone = null, onRestore = null, onNeedsKey = null, onClewAsk = null } = {}) {
     this.store = store;
     this.brain = brain;
     // Team workspace sign-in: stamped as origin.author on every node created
     // here so cards carry their maker's name from the moment they exist.
     this.author = typeof author === "string" ? author : "";
+    // Clew-backed member (workspace.json clewAuthors): key-less asks are handed
+    // to the team's house answerer instead of failing with a provider error.
+    this.clewBacked = !!clewBacked;
     this.onEvent = onEvent;
     this.onToast = onToast;
     this.onDone = onDone;
     this.onRestore = onRestore;
     this.onNeedsKey = onNeedsKey;
+    this.onClewAsk = onClewAsk;
     this.state = createHoleState(hole);
     this.holeId = this.state.hole_id;
     this.title = this.state.title;
@@ -237,6 +241,19 @@ export class DirectRabbitholeHost {
     const node = this.state.nodes.get(nodeId);
     if (!node || node.status !== "pending") return;
     if (!this.brain) {
+      if (this.clewBacked) {
+        // No key, but the house answerer covers this member: hand the ask to
+        // Clew. Stamp the stub so the answerer skips its grace window (nothing
+        // here will ever answer first), release the card (a held controller
+        // blocks ingestRemoteNodes' update-in-place), and trigger an immediate
+        // sync so the stub reaches the hub now, not at the next 20s tick. The
+        // card keeps its "Clewing" state until the answer lands over SSE.
+        node.origin = { ...(node.origin ?? {}), answer_via: "clew" };
+        this.abortByNode.delete(nodeId);
+        await this.flushSave();
+        this.onClewAsk?.(nodeId);
+        return;
+      }
       // Session-only keys live in page memory and vanish when the browser
       // silently reloads a long-idle tab — surface that instead of failing quietly.
       this.onNeedsKey?.();

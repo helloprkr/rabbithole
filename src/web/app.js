@@ -106,7 +106,8 @@ async function renderHome() {
 
   initSettingsPanel();
   const settings = loadSettings();
-  const needsKey = presetFor(settings.preset).requires_key && !getApiKey(settings);
+  // A clew-covered member never NEEDS a key — the house answerer has them.
+  const needsKey = presetFor(settings.preset).requires_key && !getApiKey(settings) && !clewCovers();
   const settingsPanel = document.getElementById("settings-panel");
   const settingsOpen = document.getElementById("settings-open");
   settingsPanel.classList.toggle("expanded", needsKey);
@@ -191,6 +192,9 @@ async function loadTeamConfig() {
       project: cfg.project,
       hole: typeof cfg.hole === "string" && cfg.hole ? cfg.hole : "",
       branchEndpoint: typeof cfg.branchEndpoint === "string" && cfg.branchEndpoint ? cfg.branchEndpoint : "/api/branches",
+      // Members the house answerer (the toolkeeper's Claude subscription)
+      // answers for. On this list → asking needs NO provider key.
+      clewAuthors: Array.isArray(cfg.clewAuthors) ? cfg.clewAuthors.filter((a) => typeof a === "string") : [],
     };
   } catch {
     return null;
@@ -204,6 +208,13 @@ function teamAuthor() {
   } catch {
     return "";
   }
+}
+
+// Is the signed-in member covered by the house answerer? Covered members ask
+// with zero setup — Clew (the toolkeeper's subscription) answers over SSE.
+function clewCovers() {
+  const author = teamAuthor();
+  return !!(author && teamConfig?.clewAuthors?.includes(author));
 }
 
 function slugifyAuthor(raw) {
@@ -400,7 +411,15 @@ function startTeamSync() {
 // up as if they were local work. Returns how many nodes were actually new.
 function ingestTeamNodes(nodes) {
   if (!currentHost || !currentHoleId || currentHoleId !== teamHoleLocalId) return 0;
-  const added = currentHost.ingestRemoteNodes(nodes);
+  // Local-only cards (definitions): never materialize someone ELSE'S on this
+  // canvas. Our own pending stub is a known id, so Clew's answer for it still
+  // lands via the update-in-place path.
+  const incoming = (Array.isArray(nodes) ? nodes : []).filter((n) => {
+    if (!n || typeof n !== "object") return false;
+    if (n.origin?.local !== true) return true;
+    return !!(n.id && currentHost.state.nodes.has(n.id));
+  });
+  const added = currentHost.ingestRemoteNodes(incoming);
   if (added.length) {
     try {
       const key = teamSyncedStorageKey(currentHoleId);
@@ -478,7 +497,16 @@ async function teamSyncNow(silent = false) {
     let synced = [];
     try { synced = JSON.parse(localStorage.getItem(teamSyncedStorageKey(currentHoleId)) || "[]"); } catch {}
     const syncedSet = new Set(Array.isArray(synced) ? synced : []);
-    const novel = hole.nodes.filter((n) => n && typeof n.id === "string" && n.id && !syncedSet.has(n.id));
+    const novel = hole.nodes.filter((n) => {
+      if (!n || typeof n.id !== "string" || !n.id || syncedSet.has(n.id)) return false;
+      // Local-only cards (definitions) never join the team canvas. The ONE
+      // exception: a pending clew-bound stub must transit the hub so the house
+      // answerer can fill it — the merge and everyone's ingest still drop it.
+      if (n.origin?.local === true) {
+        return !(n.markdown ?? "").trim() && n.origin?.answer_via === "clew";
+      }
+      return true;
+    });
     if (!novel.length) {
       if (!silent) showToast({ message: "Everything here is already synced to the team." });
       return;
@@ -738,12 +766,17 @@ async function startHole(hole, { replace = false } = {}) {
     }
     showToast({ message: "Add your provider key to keep asking — session-only keys clear when the tab reloads.", timeoutMs: 8000 });
   };
+  // Clew-backed: this member's key-less asks are answered by the house agent
+  // (only meaningful on the TEAM hole — that's the tree the answerer watches).
+  const clewBacked = teamMode && clewCovers();
   currentHost = new DirectRabbitholeHost({
     store,
     hole,
     brain,
     author: teamMode ? teamAuthor() : "",
+    clewBacked,
     onNeedsKey: promptForKey,
+    onClewAsk: () => { teamSyncNow(true).catch(() => {}); },
     onToast: showToast,
     onDone: () => {
       history.pushState(null, "", location.pathname);
@@ -754,12 +787,13 @@ async function startHole(hole, { replace = false } = {}) {
   // A discarded tab reloads straight into the canvas via #hole=, skipping the
   // home view's needs-key affordance — surface the missing key immediately.
   // (Coming from the home view, the user just saw the needs-key panel; the
-  // prompt would be redundant there, so only the hash-boot path gets it.)
-  if (replace && !brain && presetFor(settings.preset).requires_key) promptForKey();
+  // prompt would be redundant there, so only the hash-boot path gets it.
+  // Clew-backed members never need one.)
+  if (replace && !brain && presetFor(settings.preset).requires_key && !clewBacked) promptForKey();
 
   const hydration = currentHost.hydration();
   hydration.asset_data = await buildLiveAssetData(hole.hole_id);
-  startRabbithole(hydration, { transport: currentHost.adapter(), attachDocument: attachDocumentToCanvas });
+  startRabbithole(hydration, { transport: currentHost.adapter(), attachDocument: attachDocumentToCanvas, placeNote: placeNoteNode });
 
   // Nodes that were mid-answer when the tab last closed reload as eternal
   // "Clewing" stubs — nothing re-drives them. With a working brain, re-ask
@@ -793,11 +827,12 @@ async function startHole(hole, { replace = false } = {}) {
 }
 
 // Re-drive our own pending asks (a reload killed the stream, or the key just
-// arrived). Guards: needs a brain; never a node that is actively streaming;
+// arrived). Guards: needs a brain OR clew coverage (the clew path re-stamps
+// answer_via and re-syncs the stub); never a node that is actively streaming;
 // never a node authored by someone else (a teammate's ask, a reader:* pending
 // card) — those belong to their maker or the team's answering agent.
 function resumePendingAnswers() {
-  if (!currentHost?.brain) return;
+  if (!currentHost?.brain && !currentHost?.clewBacked) return;
   const mine = currentHoleId && currentHoleId === teamHoleLocalId ? teamAuthor() : "";
   for (const node of currentHost.state.nodes.values()) {
     if (node.status !== "pending") continue;
@@ -808,6 +843,29 @@ function resumePendingAnswers() {
     if (author && !mine && author.startsWith("reader:")) continue;
     currentHost.startAnswer(node.id, { reset: true });
   }
+}
+
+// "Write a note instead" from the selection popup: the UI already built and
+// rendered the card (a born-answered human note — no AI touches it); here we
+// just record it in the host state so it persists, and nudge the team sync so
+// it reaches the group now rather than at the next tick.
+function placeNoteNode(payload) {
+  if (!currentHost || !payload || !payload.id) return;
+  currentHost.dispatch({
+    type: "node_answered",
+    node_id: payload.id,
+    parent_id: payload.parent_id ?? null,
+    title: payload.title || "Note",
+    markdown: payload.markdown || "",
+    origin: payload.origin && typeof payload.origin === "object" ? payload.origin : null,
+    position: payload.position ?? { x: 0, y: 0 },
+    size: payload.size ?? null,
+    font_scale: 1,
+    read: true,
+    created_at: payload.created_at ?? new Date().toISOString(),
+  });
+  currentHost.scheduleSave();
+  if (currentHoleId && currentHoleId === teamHoleLocalId) teamSyncNow(true).catch(() => {});
 }
 
 // "Attach a document here" from the selection popup: ingest a .md/.txt/.pdf

@@ -321,7 +321,24 @@ body.mode-canvas #viewport { display: block; }
 .node-head { position: relative; display: flex; align-items: center; padding: 8px 12px; background: var(--node-head); border-bottom: 1px solid var(--border); border-radius: 9px 9px 0 0; cursor: grab; user-select: none; flex-shrink: 0; }
 .node-head:active { cursor: grabbing; }
 .node-title { font-size: 11.5px; font-weight: 600; letter-spacing: 0.01em; color: var(--fg-bold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
-.node-badge { font-size: 12px; line-height: 1; margin-right: 7px; flex-shrink: 0; cursor: default; }
+.node-badge { display: inline-flex; align-items: center; line-height: 1; margin-right: 7px; flex-shrink: 0; cursor: default; color: var(--fg-bold); }
+.node-badge svg { display: block; }
+/* Node-kind chip: names the card's species (definition / note / document). */
+.node-kind { display: inline-block; flex-shrink: 0; margin-right: 7px; font-family: var(--font-ui); font-size: 9px;
+  font-weight: 650; letter-spacing: 0.07em; text-transform: uppercase; color: var(--fg-faint);
+  border: 1px solid var(--border); border-radius: 4px; padding: 1.5px 5px; cursor: default; }
+/* Definitions: the member's own dictionary — smaller voice, dashed edge, quiet
+   enough to gloss over while working. Local-only: nobody else ever sees one. */
+.node--definition { border-style: dashed; background: color-mix(in srgb, var(--fg) 2%, var(--node-bg)); }
+.node--definition .node-head { border-bottom-style: dashed; }
+.node--definition .node-kind { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.node--definition .node-body { font-size: 0.92em; }
+/* Notes: human words, no AI — a warm paper tint sets them off from answers. */
+.node--note { background: color-mix(in srgb, #E2B34A 4.5%, var(--node-bg)); }
+.node--note .node-head { background: color-mix(in srgb, #E2B34A 8%, var(--node-head)); }
+.node--note .node-kind { color: color-mix(in srgb, #B8862B 80%, var(--fg)); border-color: color-mix(in srgb, #B8862B 45%, transparent); background: color-mix(in srgb, #E2B34A 10%, transparent); }
+/* Documents: attached sources. */
+.node--document .node-kind { border-style: dotted; }
 /* Author chip: a small pill next to the title, colored by the node's author. */
 .node-author { display: inline-block; max-width: 130px; margin-right: 7px; flex-shrink: 0; overflow: hidden;
   font-family: var(--font-ui); font-size: 9.5px; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap; text-overflow: ellipsis;
@@ -424,12 +441,17 @@ body.mode-canvas #toolbar { display: flex; }
 .lens kbd { font-family: var(--font-ui); font-size: 9px; font-weight: 500; color: var(--fg-faint);
   background: color-mix(in srgb, var(--fg) 8%, transparent); border-radius: 4px; padding: 1px 4.5px; line-height: 1.6; }
 .lens:hover kbd { color: var(--fg-dim); background: color-mix(in srgb, var(--fg) 13%, transparent); }
-.ask-attach-row { display: none; padding: 0 5px 5px; border-top: 0; background: color-mix(in srgb, var(--fg) 2.5%, transparent); }
-.ask-attach-row.available { display: block; }
-.ask-attach { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-family: var(--font-ui);
+.ask-attach-row { display: none; gap: 4px; padding: 0 5px 5px; border-top: 0; background: color-mix(in srgb, var(--fg) 2.5%, transparent); }
+.ask-attach-row.available { display: flex; }
+.ask-note, .ask-attach { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-family: var(--font-ui);
   font-size: 11px; font-weight: 500; color: var(--fg-dim); background: none; border: 1px dashed var(--border); border-radius: 8px;
   padding: 5.5px 2px; cursor: pointer; transition: color 0.12s, background 0.12s, border-color 0.12s; }
-.ask-attach:hover { color: var(--fg-bold); background: var(--hl); border-color: var(--border-focus); }
+.ask-note:hover, .ask-attach:hover { color: var(--fg-bold); background: var(--hl); border-color: var(--border-focus); }
+/* Note mode: same popup, the words are the member's own — the lens row retires
+   and the surface takes the note tint so the mode reads at a glance. */
+#ask.note-mode .ask-lenses { display: none; }
+#ask.note-mode .ask-input { background: color-mix(in srgb, #E2B34A 6%, transparent); }
+#ask.note-mode .ask-note { color: var(--fg-bold); border-style: solid; background: color-mix(in srgb, #E2B34A 10%, transparent); border-color: color-mix(in srgb, #B8862B 45%, transparent); }
 
 /* ---------- ⌘K palette — search the whole hole ---------- */
 #palette { position: fixed; inset: 0; z-index: 120; display: none; background: color-mix(in srgb, var(--bg) 35%, transparent); }
