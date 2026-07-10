@@ -1801,6 +1801,51 @@ var RabbitholeClient = (() => {
     return { x, y };
   }
 
+  // src/core/team-palette.js
+  var TEAM_PALETTE = [
+    "#0072B2",
+    // blue
+    "#D55E00",
+    // vermillion
+    "#009E73",
+    // bluish green
+    "#CC79A7",
+    // reddish purple
+    "#E69F00",
+    // orange
+    "#56B4E9",
+    // sky blue
+    "#F0E442"
+    // yellow (lowest contrast — last)
+  ];
+  var READER_COLOR = "#78716c";
+  function assignAuthorColors(slugs) {
+    const distinct = [...new Set(slugs)].sort();
+    const colors = {};
+    let paletteIndex = 0;
+    for (const slug of distinct) {
+      if (slug.startsWith("reader")) {
+        colors[slug] = READER_COLOR;
+        continue;
+      }
+      colors[slug] = TEAM_PALETTE[paletteIndex % TEAM_PALETTE.length];
+      paletteIndex += 1;
+    }
+    return colors;
+  }
+  function deriveAuthorHydration(nodeList) {
+    const authors = {};
+    const slugs = [];
+    for (const node of nodeList) {
+      const raw = node && node.origin && typeof node.origin.author === "string" ? node.origin.author.trim() : "";
+      if (!raw) continue;
+      authors[node.id] = raw;
+      slugs.push(raw);
+    }
+    if (!slugs.length) return null;
+    return { authors, authorColors: assignAuthorColors(slugs) };
+  }
+
   // src/ui/core.js
   var SVGNS = "http://www.w3.org/2000/svg";
   var MIN_SCALE = 0.15;
@@ -1812,6 +1857,7 @@ var RabbitholeClient = (() => {
   var hydration = null;
   var authorsByNode = {};
   var authorColors = {};
+  var selfAuthor = "";
   var rootId = null;
   var frozen = false;
   var nodes = {};
@@ -1880,6 +1926,7 @@ var RabbitholeClient = (() => {
     configureLenses(hydration.lenses);
     authorsByNode = hydration.authors || {};
     authorColors = hydration.authorColors || {};
+    selfAuthor = typeof hydration.self_author === "string" ? hydration.self_author : "";
     rootId = hydration.root_id;
     frozen = !!hydration.frozen;
     nodes = {};
@@ -2209,10 +2256,14 @@ var RabbitholeClient = (() => {
   }
   function authorChipFor(node) {
     if (!node) return null;
-    var slug = authorsByNode[node.id];
+    var slug = authorsByNode[node.id] || (node.origin && typeof node.origin.author === "string" ? node.origin.author : "");
     if (!slug) return null;
     var color = authorColors[slug];
-    return color ? { slug, color } : null;
+    if (!color) {
+      color = assignAuthorColors(Object.keys(authorColors).concat(slug))[slug];
+      authorColors[slug] = color;
+    }
+    return { slug, color };
   }
   function lensLabel2(key) {
     return lensLabel(key);
@@ -2220,7 +2271,7 @@ var RabbitholeClient = (() => {
   function lensBadgeHtml(key) {
     return '<span class="lens-badge">' + esc(lensLabel2(key)) + "</span>";
   }
-  var LOADING_BUNNY_HTML = '<span class="loading-bunny" aria-hidden="true"><svg width="22" height="17" viewBox="0 0 44 34" fill="currentColor" focusable="false" aria-hidden="true"><circle cx="8.2" cy="18.2" r="3.6"/><path d="M16.8 27.4c-6.4 0-11.1-3.6-11.1-8.4 0-5.1 4.8-8.7 11.4-8.7 6.7 0 11.9 3.9 11.9 8.9 0 4.9-4.9 8.2-12.2 8.2z"/><path d="M29.5 21.2c-4 0-7.1-2.7-7.1-6.2 0-3.6 3.2-6.3 7.2-6.3 4.1 0 7.3 2.7 7.3 6.2 0 3.7-3.2 6.3-7.4 6.3z"/><path d="M27.4 10.4c-.9.3-1.9-.2-2.2-1.1L22.7 2.7c-.4-1 .1-2 1.1-2.4 1-.3 1.9.2 2.3 1.1l2.8 6.7c.4 1-.3 1.9-1.5 2.3z"/><path d="M31.9 10.2c-1 .1-1.8-.5-2-1.5l-1-7.1c-.1-1 .6-1.9 1.6-2 1-.1 1.8.6 2 1.6l1.1 7.1c.1 1-.6 1.8-1.7 1.9z"/><path d="M11.5 28.2h7.6c.5 0 .8.4.6.9-.1.3-.4.6-.8.6l-8.3 1.4c-.8.1-1.5-.5-1.5-1.3 0-.9.8-1.6 2.4-1.6z"/></svg></span>';
+  var LOADING_CLEW_HTML = '<span class="loading-clew" aria-hidden="true"><svg width="21" height="19" viewBox="0 0 44 38" fill="none" focusable="false" aria-hidden="true"><g class="clew-ball"><circle cx="17" cy="19" r="12.5" stroke="currentColor" stroke-width="2.4"/><path d="M6.6 14c6.6-5 14.2-5 20.8 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M5.4 21.8c7.7-3.9 15.5-3.9 23.2 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M9.4 28.9c5.6-2.6 9.6-2.6 15.2 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></g><path class="clew-thread" d="M29.5 19c3.4 0 3.2-3.4 6-3.4s2.6 3.4 5.6 3.4" stroke-width="1.9" stroke-linecap="round"/></svg></span>';
   function buildLoading(node) {
     if (node && node.error) {
       var errWrap = document.createElement("div");
@@ -2251,7 +2302,7 @@ var RabbitholeClient = (() => {
     wrap.className = "loading";
     var st = document.createElement("div");
     st.className = "loading-status";
-    st.innerHTML = LOADING_BUNNY_HTML + '<span class="shimmer-text ll-live">Thinking</span><span class="ll-stalled">Saved \u2014 waiting for the agent</span><span class="ll-closed">Saved \u2014 answered when you reopen this hole</span><span class="ll-frozen">Unanswered when this snapshot was exported</span><span class="loading-time" data-start="' + (node._startTs || Date.now()) + '"></span>';
+    st.innerHTML = LOADING_CLEW_HTML + '<span class="shimmer-text ll-live">Clewing</span><span class="ll-stalled">Saved \u2014 waiting for the agent</span><span class="ll-closed">Saved \u2014 answered when you reopen this hole</span><span class="ll-frozen">Unanswered when this snapshot was exported</span><span class="loading-time" data-start="' + (node._startTs || Date.now()) + '"></span>';
     var sk = document.createElement("div");
     sk.innerHTML = '<div class="sk-line w1"></div><div class="sk-line w2"></div><div class="sk-line w3"></div><div class="sk-line w4"></div>';
     wrap.appendChild(st);
@@ -3276,6 +3327,12 @@ var RabbitholeClient = (() => {
       q.className = "origin-quote";
       q.textContent = "\u201C" + node.origin.selected_text + "\u201D";
       body.appendChild(q);
+      if (node.origin.question && !node.origin.lens) {
+        var oq = document.createElement("div");
+        oq.className = "origin-question";
+        oq.textContent = node.origin.question;
+        body.appendChild(oq);
+      }
     } else if (node.origin && (node.origin.question || node.origin.lens)) {
       var fq = document.createElement("div");
       fq.className = "origin-quote";
@@ -3777,10 +3834,15 @@ var RabbitholeClient = (() => {
     hideConfirm: function() {
     },
     hidePeek: function() {
-    }
+    },
+    // Optional: attach a document (pdf/md) as a branch of the current selection.
+    // Only the /app web workspace wires this; absent → the button never shows.
+    attach: null
   };
   function registerAskHooks(hooks) {
     Object.assign(askHooks, hooks || {});
+    var row = document.getElementById("ask-attach-row");
+    if (row) row.classList.toggle("available", typeof askHooks.attach === "function");
   }
   function initAskFollowups() {
     document.addEventListener("mousedown", function(e) {
@@ -3806,6 +3868,18 @@ var RabbitholeClient = (() => {
     document.getElementById("ask-lenses").addEventListener("click", function(e) {
       var b = e.target.closest ? e.target.closest(".lens") : null;
       if (b) submitAsk(b.getAttribute("data-lens"), motionSourceFromEvent(e));
+    });
+    var attachBtn = document.getElementById("ask-attach");
+    if (attachBtn) attachBtn.addEventListener("click", function(e) {
+      e.preventDefault();
+      if (!pendingAsk || typeof askHooks.attach !== "function") return;
+      var req = {
+        parentId: pendingAsk.parentId,
+        selectedText: pendingAsk.selectedText,
+        anchor: { offset_start: pendingAsk.startOff, offset_end: pendingAsk.endOff }
+      };
+      hideAsk();
+      askHooks.attach(req);
     });
     askText.addEventListener("input", function() {
       autoGrowEl(askText, 110);
@@ -3936,7 +4010,14 @@ var RabbitholeClient = (() => {
       base_url: parent.base_url || null,
       base_url_source: parent.base_url ? "inherited" : null,
       read: false,
-      origin: { selected_text: pendingAsk.selectedText, question, lens, anchor, branch_type: BRANCH_SELECTION },
+      origin: {
+        selected_text: pendingAsk.selectedText,
+        question,
+        lens,
+        anchor,
+        branch_type: BRANCH_SELECTION,
+        author: selfAuthor || void 0
+      },
       x: pos.x,
       y: pos.y,
       w: DEFAULT_CHILD.w,
@@ -4010,7 +4091,15 @@ var RabbitholeClient = (() => {
       base_url: parent.base_url || null,
       base_url_source: parent.base_url ? "inherited" : null,
       read: false,
-      origin: { selected_text: "", question, lens, synthesis: !!synthesis, anchor: null, branch_type: BRANCH_FOLLOWUP },
+      origin: {
+        selected_text: "",
+        question,
+        lens,
+        synthesis: !!synthesis,
+        anchor: null,
+        branch_type: BRANCH_FOLLOWUP,
+        author: selfAuthor || void 0
+      },
       x: pos.x,
       y: pos.y,
       w: DEFAULT_CHILD.w,
@@ -4730,6 +4819,9 @@ var RabbitholeClient = (() => {
   <!-- Lens buttons are rendered client-side from the config-driven LENSES
        (see ui/ask-followups.js renderLensButtons). -->
   <div class="ask-lenses" id="ask-lenses"></div>
+  <!-- Shown only when the host wires an attach handler (the /app workspace):
+       drop a PDF/markdown source in as a branch of this selection. -->
+  <div class="ask-attach-row" id="ask-attach-row"><button class="ask-attach" id="ask-attach" type="button">\u2295 Attach a document here (.pdf / .md)</button></div>
 </div>
 
 <div id="palette"><div id="palette-panel">
@@ -4860,6 +4952,7 @@ var RabbitholeClient = (() => {
   }
   async function buildSnapshotHydration() {
     var snapshotNodes = serializeSnapshotNodes();
+    var authorHydration = deriveAuthorHydration(snapshotNodes);
     return {
       session_id: hydration.session_id || null,
       hole_id: hydration.hole_id || null,
@@ -4870,7 +4963,8 @@ var RabbitholeClient = (() => {
       view_state: snapshotViewState(),
       frozen: true,
       asset_data: await buildAssetData(snapshotNodes),
-      nodes: snapshotNodes
+      nodes: snapshotNodes,
+      ...authorHydration || {}
     };
   }
   function buildSnapshotHtml(snapshotHydration) {
@@ -32077,7 +32171,10 @@ ${text2}</tr>
       post,
       closeShare,
       hideConfirm,
-      hidePeek
+      hidePeek,
+      // Only the /app web workspace provides this — attaching a document (pdf/md)
+      // as a branch of the current selection. Absent, the button never shows.
+      attach: options2 && options2.attachDocument || null
     });
     registerPaletteHooks({
       hideAsk,

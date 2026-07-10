@@ -1,14 +1,18 @@
 import { createHoleState, holeStateToHole, reduceHoleEvent } from "../../core/reducer.js";
 import { lineageNodesFromMap, truncate } from "../../core/model.js";
 import { extractAssetRefsFromMarkdown } from "../../core/assets.js";
+import { deriveAuthorHydration } from "../../core/team-palette.js";
 import { TitleSentinelParser, fallbackTitleForNode, normalizeProviderError } from "../brain/index.js";
 
 const SAVE_DEBOUNCE_MS = 400;
 
 export class DirectRabbitholeHost {
-  constructor({ store, hole, brain = null, onEvent = null, onToast = null, onDone = null, onRestore = null, onNeedsKey = null } = {}) {
+  constructor({ store, hole, brain = null, author = "", onEvent = null, onToast = null, onDone = null, onRestore = null, onNeedsKey = null } = {}) {
     this.store = store;
     this.brain = brain;
+    // Team workspace sign-in: stamped as origin.author on every node created
+    // here so cards carry their maker's name from the moment they exist.
+    this.author = typeof author === "string" ? author : "";
     this.onEvent = onEvent;
     this.onToast = onToast;
     this.onDone = onDone;
@@ -24,6 +28,10 @@ export class DirectRabbitholeHost {
   }
 
   hydration() {
+    // Author chips (Warren patch 3) ride hydration exactly like the node
+    // server's buildHydration: maps derived from each node's origin.author,
+    // omitted entirely when no node carries one (personal holes unchanged).
+    const authorHydration = deriveAuthorHydration(this.state.nodes.values());
     return {
       session_id: `web-${this.holeId}`,
       hole_id: this.holeId,
@@ -33,6 +41,8 @@ export class DirectRabbitholeHost {
       agent_attached: true,
       view_state: this.state.view_state,
       nodes: this.serializeNodes(),
+      ...(authorHydration || {}),
+      ...(this.author ? { self_author: this.author } : {}),
     };
   }
 
@@ -104,6 +114,13 @@ export class DirectRabbitholeHost {
   async handleBranchRequest(payload) {
     const result = this.dispatch({ ...payload, type: "branch_request" }, { now: new Date().toISOString() });
     const node = result.createdNode;
+    // Stamp the signed-in member as the node's author (never restamp another's).
+    if (this.author) {
+      const created = this.state.nodes.get(node.id);
+      if (created?.origin && !created.origin.author) {
+        created.origin = { ...created.origin, author: this.author };
+      }
+    }
     await this.flushSave();
     this.startAnswer(node.id, { reset: false });
     return { ok: true, node_id: node.id, request_id: payload.request_id };
@@ -345,16 +362,48 @@ export class DirectRabbitholeHost {
   }
 
   // Merge nodes fetched from a remote copy of this hole (the team hub) into the
-  // live session. Only ids we don't hold are ingested — local work, including a
-  // currently-streaming answer, is never clobbered. Each ingested node is
-  // dispatched AND emitted as node_answered: the client self-heals unknown ids
-  // into new cards and files them under "Since you left". Parents are ingested
-  // before children; nodes whose parent never materializes are skipped.
+  // live session. Ids we don't hold are ingested as new cards; an id we hold as
+  // a PENDING stub whose remote copy carries content is updated in place — that
+  // is an ask answered elsewhere (a teammate's claim, the team agent) landing on
+  // the very card that was waiting for it. Local work is never clobbered: a
+  // node that is answered locally, or actively streaming here, is left alone.
+  // Each ingested/updated node is dispatched AND emitted as node_answered: the
+  // client self-heals unknown ids into new cards ("Since you left") and
+  // re-renders known ids in place. Parents are ingested before children; nodes
+  // whose parent never materializes are skipped.
   ingestRemoteNodes(remoteNodes = []) {
-    const queue = (Array.isArray(remoteNodes) ? remoteNodes : []).filter(
-      (n) => n && typeof n.id === "string" && n.id && !this.state.nodes.has(n.id)
+    const incoming = (Array.isArray(remoteNodes) ? remoteNodes : []).filter(
+      (n) => n && typeof n.id === "string" && n.id
     );
+    const queue = incoming.filter((n) => !this.state.nodes.has(n.id));
     const added = [];
+
+    // Update-in-place: remote answer for a locally-pending stub.
+    for (const n of incoming) {
+      const local = this.state.nodes.get(n.id);
+      if (!local || local.status !== "pending") continue;
+      if (this.abortByNode.has(n.id)) continue; // a live local stream owns this card
+      const remoteMd = typeof n.markdown === "string" ? n.markdown.trim() : "";
+      if (!remoteMd || remoteMd === (local.markdown ?? "").trim()) continue;
+      const event = {
+        type: "node_answered",
+        node_id: n.id,
+        parent_id: local.parent_id ?? null,
+        title: typeof n.title === "string" && n.title ? n.title : local.title || "",
+        markdown: n.markdown,
+        base_url: n.base_url ?? local.base_url ?? null,
+        base_url_source: n.base_url_source ?? local.base_url_source ?? null,
+        origin: n.origin && typeof n.origin === "object" ? n.origin : local.origin ?? null,
+        position: local.position ?? { x: 0, y: 0 }, // keep the card where the asker put it
+        size: local.size ?? null,
+        font_scale: local.font_scale ?? 1,
+        read: false,
+      };
+      this.dispatch(event);
+      this.emit(event);
+      added.push(n.id);
+    }
+
     let progressed = true;
     while (queue.length && progressed) {
       progressed = false;

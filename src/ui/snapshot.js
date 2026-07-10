@@ -1,4 +1,5 @@
 import { CANVAS_SHELL } from "../core/html/shell.js";
+import { deriveAuthorHydration } from "../core/team-palette.js";
 import {
   currentNodeId,
   hydration,
@@ -126,6 +127,8 @@ function extractDompurifySource() {
 
 export async function buildSnapshotHydration() {
   var snapshotNodes = serializeSnapshotNodes();
+  // Author chips survive into exported snapshots (same derivation as live).
+  var authorHydration = deriveAuthorHydration(snapshotNodes);
   return {
     session_id: hydration.session_id || null,
     hole_id: hydration.hole_id || null,
@@ -136,7 +139,8 @@ export async function buildSnapshotHydration() {
     view_state: snapshotViewState(),
     frozen: true,
     asset_data: await buildAssetData(snapshotNodes),
-    nodes: snapshotNodes
+    nodes: snapshotNodes,
+    ...(authorHydration || {})
   };
 }
 

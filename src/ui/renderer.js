@@ -11,6 +11,13 @@ export function setRendererAssetData(data) {
   assetData = data && typeof data === "object" ? data : null;
 }
 
+// Register assets that appear mid-session (a document attached to the open
+// canvas) without disturbing what boot hydration installed.
+export function mergeRendererAssetData(extra) {
+  if (!extra || typeof extra !== "object") return;
+  assetData = Object.assign({}, assetData || {}, extra);
+}
+
 export function browserEncodeBase64Utf8(value) {
   var source = String(value == null ? "" : value);
   if (typeof TextEncoder === "function") {

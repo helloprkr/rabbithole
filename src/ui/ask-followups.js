@@ -16,6 +16,7 @@ import {
   currentNodeId,
   easeOutMotion,
   esc,
+  selfAuthor,
   flashHint,
   frozen,
   agentAttached,
@@ -60,11 +61,16 @@ var askHooks = {
   post: function(){ return Promise.resolve({ ok: true }); },
   closeShare: function(){},
   hideConfirm: function(){},
-  hidePeek: function(){}
+  hidePeek: function(){},
+  // Optional: attach a document (pdf/md) as a branch of the current selection.
+  // Only the /app web workspace wires this; absent → the button never shows.
+  attach: null
 };
 
 export function registerAskHooks(hooks) {
   Object.assign(askHooks, hooks || {});
+  var row = document.getElementById("ask-attach-row");
+  if (row) row.classList.toggle("available", typeof askHooks.attach === "function");
 }
 
   // ===========================================================================
@@ -88,6 +94,15 @@ export function initAskFollowups(){
   document.getElementById("ask-lenses").addEventListener("click", function(e){
     var b = e.target.closest ? e.target.closest(".lens") : null;
     if (b) submitAsk(b.getAttribute("data-lens"), motionSourceFromEvent(e));
+  });
+  var attachBtn = document.getElementById("ask-attach");
+  if (attachBtn) attachBtn.addEventListener("click", function(e){
+    e.preventDefault();
+    if (!pendingAsk || typeof askHooks.attach !== "function") return;
+    var req = { parentId: pendingAsk.parentId, selectedText: pendingAsk.selectedText,
+                anchor: { offset_start: pendingAsk.startOff, offset_end: pendingAsk.endOff } };
+    hideAsk();
+    askHooks.attach(req);
   });
   askText.addEventListener("input", function(){ autoGrowEl(askText, 110); });
   askText.addEventListener("keydown", onAskTextKeydown);
@@ -200,7 +215,8 @@ export function hideAsk(){ ask.classList.remove("visible"); pendingAsk = null; c
 	      base_url: parent.base_url || null,
 	      base_url_source: parent.base_url ? "inherited" : null,
 	      read: false,
-      origin: { selected_text: pendingAsk.selectedText, question: question, lens: lens, anchor: anchor, branch_type: BRANCH_SELECTION },
+      origin: { selected_text: pendingAsk.selectedText, question: question, lens: lens, anchor: anchor, branch_type: BRANCH_SELECTION,
+                author: selfAuthor || undefined },
       x: pos.x, y: pos.y, w: DEFAULT_CHILD.w, h: DEFAULT_CHILD.h, font_scale: 1, collapsed: false,
       status: "pending", _order: nextOrder(), _startTs: Date.now()
     };
@@ -261,7 +277,8 @@ export function sendFollowup(parent, question, lens, synthesis){
 	      base_url: parent.base_url || null,
 	      base_url_source: parent.base_url ? "inherited" : null,
 	      read: false,
-      origin: { selected_text: "", question: question, lens: lens, synthesis: !!synthesis, anchor: null, branch_type: BRANCH_FOLLOWUP },
+      origin: { selected_text: "", question: question, lens: lens, synthesis: !!synthesis, anchor: null, branch_type: BRANCH_FOLLOWUP,
+                author: selfAuthor || undefined },
       x: pos.x, y: pos.y, w: DEFAULT_CHILD.w, h: DEFAULT_CHILD.h, font_scale: 1, collapsed: false,
       status: "pending", _order: nextOrder(), _startTs: Date.now()
     };

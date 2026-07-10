@@ -81,7 +81,10 @@ export function startRabbithole(hydration, options) {
     post: post,
     closeShare: closeShare,
     hideConfirm: hideConfirm,
-    hidePeek: hidePeek
+    hidePeek: hidePeek,
+    // Only the /app web workspace provides this — attaching a document (pdf/md)
+    // as a branch of the current selection. Absent, the button never shows.
+    attach: (options && options.attachDocument) || null
   });
   registerPaletteHooks({
     hideAsk: hideAsk,

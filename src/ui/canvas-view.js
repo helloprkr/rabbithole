@@ -346,6 +346,12 @@ export function fillBody(node){
     } else if (node.origin && node.origin.selected_text){
       var q = document.createElement("div"); q.className = "origin-quote"; q.textContent = "“" + node.origin.selected_text + "”";
       body.appendChild(q);
+      // The header truncates a long question; the card shows it whole here.
+      // Lens asks skip this — their canned question is already the title.
+      if (node.origin.question && !node.origin.lens){
+        var oq = document.createElement("div"); oq.className = "origin-question"; oq.textContent = node.origin.question;
+        body.appendChild(oq);
+      }
     } else if (node.origin && (node.origin.question || node.origin.lens)){
       var fq = document.createElement("div"); fq.className = "origin-quote";
       fq.textContent = node.origin.lens ? "Follow-up — " + lensLabel(node.origin.lens) : node.origin.question;

@@ -4,6 +4,8 @@ import { IdbStore } from "./store/idb-store.js";
 import { DirectRabbitholeHost, createHoleFromMarkdown } from "./transport/direct-host.js";
 import { startRabbithole } from "../ui/entry.js";
 import { setSnapshotHooks, buildSnapshotHydration, buildSnapshotHtml } from "../ui/snapshot.js";
+import { mergeRendererAssetData } from "../ui/renderer.js";
+import { buildPdfMarkdown } from "../core/pdf-shared.js";
 import { openUrlToStoredHole } from "./ingest/url.js";
 
 const SETTINGS_KEY = "rh-web-settings";
@@ -91,9 +93,55 @@ async function renderHome() {
       <div id="hole-list" class="hole-list"></div>
     </section>
 
-    ${teamConfig ? teamCardHtml() : ""}
+    ${teamConfig ? teamCardHtml() : composerHtml()}
 
-    <section class="new-hole" aria-labelledby="composer-heading">
+    <section class="settings-panel home-settings" id="settings-panel" aria-label="AI provider settings"></section>
+
+    <section class="home-footnotes" aria-label="Setup notes">
+      <span id="empty-note" class="empty-note" hidden>No saved holes yet.</span>
+      <a href="${OPENROUTER_WALKTHROUGH_URL}" target="_blank" rel="noreferrer">30-second OpenRouter key walkthrough</a>
+      <span class="agent-path">Using a coding agent? <code>${escapeHtml(AGENT_COMMAND)}</code> <button class="copy-command" type="button" data-copy-agent>Copy</button></span>
+    </section>
+  </main><div id="web-toast" class="web-toast" aria-live="polite"></div>`;
+
+  initSettingsPanel();
+  const settings = loadSettings();
+  const needsKey = presetFor(settings.preset).requires_key && !getApiKey(settings);
+  const settingsPanel = document.getElementById("settings-panel");
+  const settingsOpen = document.getElementById("settings-open");
+  settingsPanel.classList.toggle("expanded", needsKey);
+  settingsPanel.classList.toggle("needs-key", needsKey);
+  settingsOpen.setAttribute("aria-expanded", settingsPanel.classList.contains("expanded") ? "true" : "false");
+  document.getElementById("settings-open").addEventListener("click", () => {
+    settingsPanel.classList.toggle("expanded");
+    settingsOpen.setAttribute("aria-expanded", settingsPanel.classList.contains("expanded") ? "true" : "false");
+    if (settingsPanel.classList.contains("expanded")) {
+      settingsPanel.querySelector("select, input, button, summary")?.focus();
+    }
+  });
+  // The composer only exists on the personal home — the team home leads with
+  // the team card, and documents join a project from INSIDE the canvas.
+  if (!teamConfig) {
+    document.getElementById("create-hole").addEventListener("click", createFromPaste);
+    document.getElementById("open-url").addEventListener("click", createFromUrl);
+    document.getElementById("open-url-input").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        createFromUrl();
+      }
+    });
+    initDrop();
+  }
+  document.getElementById("refresh-list").addEventListener("click", renderHoleList);
+  document.querySelectorAll("[data-copy-agent]").forEach((button) => {
+    button.addEventListener("click", () => copyText(AGENT_COMMAND, "Command copied."));
+  });
+  if (teamConfig) initTeamCard();
+  await renderHoleList();
+}
+
+function composerHtml() {
+  return `<section class="new-hole" aria-labelledby="composer-heading">
       <div class="new-hole-main">
         <div class="composer-head">
           <div>
@@ -126,47 +174,7 @@ async function renderHome() {
         </div>
         <div id="ingest-status" class="ingest-status" aria-live="polite"></div>
       </div>
-    </section>
-
-    <section class="settings-panel home-settings" id="settings-panel" aria-label="AI provider settings"></section>
-
-    <section class="home-footnotes" aria-label="Setup notes">
-      <span id="empty-note" class="empty-note" hidden>No saved holes yet.</span>
-      <a href="${OPENROUTER_WALKTHROUGH_URL}" target="_blank" rel="noreferrer">30-second OpenRouter key walkthrough</a>
-      <span class="agent-path">Using a coding agent? <code>${escapeHtml(AGENT_COMMAND)}</code> <button class="copy-command" type="button" data-copy-agent>Copy</button></span>
-    </section>
-  </main><div id="web-toast" class="web-toast" aria-live="polite"></div>`;
-
-  initSettingsPanel();
-  const settings = loadSettings();
-  const needsKey = presetFor(settings.preset).requires_key && !getApiKey(settings);
-  const settingsPanel = document.getElementById("settings-panel");
-  const settingsOpen = document.getElementById("settings-open");
-  settingsPanel.classList.toggle("expanded", needsKey);
-  settingsPanel.classList.toggle("needs-key", needsKey);
-  settingsOpen.setAttribute("aria-expanded", settingsPanel.classList.contains("expanded") ? "true" : "false");
-  document.getElementById("settings-open").addEventListener("click", () => {
-    settingsPanel.classList.toggle("expanded");
-    settingsOpen.setAttribute("aria-expanded", settingsPanel.classList.contains("expanded") ? "true" : "false");
-    if (settingsPanel.classList.contains("expanded")) {
-      settingsPanel.querySelector("select, input, button, summary")?.focus();
-    }
-  });
-  document.getElementById("create-hole").addEventListener("click", createFromPaste);
-  document.getElementById("open-url").addEventListener("click", createFromUrl);
-  document.getElementById("open-url-input").addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      createFromUrl();
-    }
-  });
-  document.getElementById("refresh-list").addEventListener("click", renderHoleList);
-  document.querySelectorAll("[data-copy-agent]").forEach((button) => {
-    button.addEventListener("click", () => copyText(AGENT_COMMAND, "Command copied."));
-  });
-  if (teamConfig) initTeamCard();
-  initDrop();
-  await renderHoleList();
+    </section>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -734,6 +742,7 @@ async function startHole(hole, { replace = false } = {}) {
     store,
     hole,
     brain,
+    author: teamMode ? teamAuthor() : "",
     onNeedsKey: promptForKey,
     onToast: showToast,
     onDone: () => {
@@ -750,7 +759,13 @@ async function startHole(hole, { replace = false } = {}) {
 
   const hydration = currentHost.hydration();
   hydration.asset_data = await buildLiveAssetData(hole.hole_id);
-  startRabbithole(hydration, { transport: currentHost.adapter() });
+  startRabbithole(hydration, { transport: currentHost.adapter(), attachDocument: attachDocumentToCanvas });
+
+  // Nodes that were mid-answer when the tab last closed reload as eternal
+  // "Clewing" stubs — nothing re-drives them. With a working brain, re-ask
+  // our own unanswered questions automatically; teammates' pending cards and
+  // reader asks are never touched (the team's answering agent owns those).
+  setTimeout(() => resumePendingAnswers(), 400);
 
   document.getElementById("web-home").addEventListener("click", async () => {
     await currentHost?.flushSave();
@@ -775,6 +790,104 @@ async function startHole(hole, { replace = false } = {}) {
     teamSyncNow: (silent = false) => teamSyncNow(silent),
     teamPullNow: () => teamPullNow(),
   };
+}
+
+// Re-drive our own pending asks (a reload killed the stream, or the key just
+// arrived). Guards: needs a brain; never a node that is actively streaming;
+// never a node authored by someone else (a teammate's ask, a reader:* pending
+// card) — those belong to their maker or the team's answering agent.
+function resumePendingAnswers() {
+  if (!currentHost?.brain) return;
+  const mine = currentHoleId && currentHoleId === teamHoleLocalId ? teamAuthor() : "";
+  for (const node of currentHost.state.nodes.values()) {
+    if (node.status !== "pending") continue;
+    if (currentHost.abortByNode.has(node.id)) continue;
+    if (!node.origin || !node.origin.question) continue;
+    const author = typeof node.origin.author === "string" ? node.origin.author : "";
+    if (author && mine && author !== mine) continue; // not ours to answer
+    if (author && !mine && author.startsWith("reader:")) continue;
+    currentHost.startAnswer(node.id, { reset: true });
+  }
+}
+
+// "Attach a document here" from the selection popup: ingest a .md/.txt/.pdf
+// into the OPEN hole as a new branch of the selection. PDFs keep their page
+// images as per-hole assets (namespaced so two attachments never collide);
+// in team mode the node's TEXT syncs to the hub — page images stay local
+// until assets ride the branch inbox.
+function attachDocumentToCanvas({ parentId, selectedText = "", anchor = null } = {}) {
+  if (!currentHost || !currentHoleId) return;
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".md,.markdown,.txt,.pdf,text/markdown,text/plain,application/pdf";
+  input.addEventListener("change", () => {
+    const file = input.files?.[0];
+    if (file) ingestAttachedFile(file, { parentId, selectedText, anchor }).catch((err) => {
+      showToast({ message: `Attach failed: ${err?.message || String(err)}`, timeoutMs: 8000 });
+    });
+  }, { once: true });
+  input.click();
+}
+
+async function ingestAttachedFile(file, { parentId, selectedText, anchor }) {
+  const title = file.name.replace(/\.[^.]+$/, "");
+  let markdown;
+  if (isPdfFile(file)) {
+    showToast({ message: `Importing ${file.name}…`, timeoutMs: 60000 });
+    const { ingestPdf } = await import("./ingest/pdf.js");
+    const result = await ingestPdf(file, { includeText: true });
+    markdown = buildPdfMarkdown({
+      title,
+      pageCount: result.page_count,
+      processedPages: result.processed_pages,
+      pageAssets: result.assets.pages,
+      pageText: result.text || [],
+      notes: result.notes,
+    });
+    // Namespace this attachment's assets so a second attached PDF (they all
+    // name pages page-001.png…) never collides, then register the blobs both
+    // durably (store) and live (renderer object URLs).
+    const stamp = `doc-${Math.random().toString(36).slice(2, 8)}`;
+    const live = {};
+    for (const asset of result.blobs) {
+      const name = `${stamp}-${asset.name}`;
+      markdown = markdown.split(`asset:${asset.name}`).join(`asset:${name}`);
+      await store.putAsset(currentHoleId, name, asset.blob);
+      live[name] = URL.createObjectURL(asset.blob);
+    }
+    mergeRendererAssetData(live);
+  } else {
+    markdown = await file.text();
+  }
+  const parent = currentHost.state.nodes.get(parentId);
+  const pos = parent?.position
+    ? { x: parent.position.x + ((parent.size && parent.size.w) || 900) + 90, y: parent.position.y }
+    : { x: 120, y: 120 };
+  const node = {
+    id: globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `doc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
+    parent_id: parentId,
+    title,
+    markdown,
+    origin: {
+      selected_text: selectedText || "",
+      question: `Attached document: ${file.name}`,
+      lens: null,
+      anchor: anchor || null,
+      branch_type: "document",
+      ...(teamAuthor() ? { author: teamAuthor() } : {}),
+    },
+    position: pos,
+    created_at: new Date().toISOString(),
+  };
+  const added = currentHost.ingestRemoteNodes([node]);
+  if (added.length) {
+    const teamNote = currentHoleId === teamHoleLocalId && isPdfFile(file)
+      ? " Its text syncs to the team; page images stay on this device for now."
+      : "";
+    showToast({ message: `Attached "${file.name}" to the canvas.${teamNote}`, timeoutMs: 8000 });
+  } else {
+    showToast({ message: `Couldn't place "${file.name}" — is the source card still on the canvas?`, timeoutMs: 8000 });
+  }
 }
 
 function initCanvasSettings() {
@@ -881,6 +994,8 @@ function initSettingsPanel() {
     if (currentHost) {
       const key = getApiKey(next);
       currentHost.brain = key || !presetFor(next.preset).requires_key ? createBrain(next, key) : null;
+      // A key arriving un-sticks any of our cards left waiting on one.
+      if (currentHost.brain) resumePendingAnswers();
     }
   });
 }

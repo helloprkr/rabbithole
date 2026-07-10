@@ -59,6 +59,7 @@ try {
   await page.waitForSelector("#team-heading");
   assert.match(await page.textContent("#team-heading"), /Theological Alignment — team warren/);
   assert.ok(await page.locator("#team-open").isDisabled(), "open must be gated on sign-in");
+  assert.equal(await page.locator("#file-md").count(), 0, "the team home must not offer the personal open-a-document composer");
 
   // --- sign-in slugifies and sticks -----------------------------------------
   await page.fill("#team-author-input", "Zy Smith!");
@@ -145,6 +146,24 @@ try {
   await page.evaluate(() => window.__rhWebApp.teamSyncNow(true));
   assert.equal(branchPosts.length, 1, "streamed nodes must never be POSTed back up");
 
+  // --- seed a PENDING stub (an ask whose stream died) for the post-reload tests.
+  // Marked already-synced so the sync assertions below stay exact.
+  await page.evaluate(async () => {
+    const hole = await window.__rhWebApp.store.loadHole("teamhole1");
+    hole.nodes.push({
+      id: "n6", parent_id: "n1", title: "What does clew mean…",
+      markdown: "",
+      origin: { selected_text: "the first clue", question: "What does clew actually mean, at full length, beyond the header?", lens: null, anchor: null, author: "zy-smith" },
+      position: { x: 40, y: 900 }, size: null, collapsed: false,
+      font_scale: 1, read: false, status: "pending", created_at: "2026-07-10T03:00:00.000Z",
+    });
+    await window.__rhWebApp.store.saveHole(hole);
+    const key = "rh-team-synced:teamhole1";
+    const synced = JSON.parse(localStorage.getItem(key) || "[]");
+    synced.push("n6");
+    localStorage.setItem(key, JSON.stringify(synced));
+  });
+
   // --- a reloaded key-less canvas announces itself instead of failing silently
   // (session-only keys live in page memory and clear when the browser discards
   // a long-idle tab; the #hole= boot path must surface that on open, not on
@@ -156,6 +175,36 @@ try {
   await page.waitForSelector("#web-settings-modal:not([hidden])");
   await page.click("#web-settings-close");
   await page.waitForSelector("#web-settings-modal[hidden]", { state: "attached" });
+
+  // --- the pending card carries its maker's chip, its FULL question, and Clews
+  if (!(await page.evaluate(() => document.body.classList.contains("mode-canvas")))) {
+    await page.click("#r-canvas");
+    await page.waitForFunction(() => document.body.classList.contains("mode-canvas"));
+  }
+  await page.waitForFunction(() =>
+    Array.from(document.querySelectorAll(".node-author")).some((el) => el.textContent === "zy-smith"));
+  await page.waitForFunction(() => document.body.textContent.includes("What does clew actually mean, at full length, beyond the header?"));
+  assert.ok(await page.evaluate(() => document.body.textContent.includes("Clewing")), "a waiting card is Clewing, not Thinking");
+  assert.ok(await page.evaluate(() => !!document.querySelector(".loading-clew .clew-ball")), "the Clew ball indicator renders");
+  assert.ok(await page.evaluate(() => document.getElementById("ask-attach-row").classList.contains("available")),
+    "the web workspace wires the attach-a-document affordance into the ask popup");
+
+  // --- an answer arriving over the stream for that SAME id lands IN PLACE
+  await waitFor(() => sseClients.length > 0, "reloaded canvas re-subscribes to the stream");
+  pushBranchEvent({
+    ts: "2026-07-10T03:05:00.000Z",
+    author: "clew",
+    hole: TEAM_SLUG,
+    nodes: [{ id: "n6", parent_id: "n1", title: "Clew, at length", markdown: "A clew is a wound ball of thread.", origin: { selected_text: "the first clue", question: "What does clew actually mean, at full length, beyond the header?", author: "zy-smith", answered_by: "clew" } }],
+  });
+  await page.waitForFunction(async () => {
+    const hole = await window.__rhWebApp.readRawHole();
+    const n = hole && hole.nodes.find((x) => x.id === "n6");
+    return n && n.status === "answered" && n.markdown.includes("wound ball of thread");
+  });
+  await page.waitForFunction(() => document.body.textContent.includes("A clew is a wound ball of thread."));
+  await page.evaluate(() => window.__rhWebApp.teamSyncNow(true));
+  assert.equal(branchPosts.length, 1, "an in-place answer must never be POSTed back up");
 
   console.log("stage12 team workspace verification passed");
 } finally {

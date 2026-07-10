@@ -19,6 +19,7 @@ import {
   shiftBounds as sharedShiftBounds,
   unionBounds as sharedUnionBounds
 } from "../core/layout.js";
+import { assignAuthorColors } from "../core/team-palette.js";
 
 export { BRANCH_FOLLOWUP, BRANCH_SELECTION, DEFAULT_CHILD, DEFAULT_ROOT, LENSES, LENS_ORDER, TREE_PARENT_GAP, TREE_STACK_GAP };
 
@@ -32,6 +33,9 @@ export var hydration = null;
 // for a personal hole (the server omits the keys), so no card gets a chip or tint.
 export var authorsByNode = {};
 export var authorColors = {};
+// Who is working this session (team workspace sign-in) — stamped onto the
+// origin of every node created here so cards carry their maker's chip live.
+export var selfAuthor = "";
 export var rootId = null;
 export var frozen = false; // read-only exported snapshot
 export var nodes = {};
@@ -102,6 +106,7 @@ export function initCore(inputHydration) {
   // Absent (personal hole) → empty maps → authorChipFor returns null for every node.
   authorsByNode = hydration.authors || {};
   authorColors = hydration.authorColors || {};
+  selfAuthor = typeof hydration.self_author === "string" ? hydration.self_author : "";
   rootId = hydration.root_id;
   frozen = !!hydration.frozen;
   nodes = {};
@@ -360,27 +365,40 @@ export function updateSince(){
   }
   // ---------- author colors ----------
   // The author chip + border tint for a node, or null when the node has no author
-  // (personal holes, root nodes, and any live ask made by the local human — those
-  // never appear in the server-shipped authors map, so they render exactly as before).
+  // (personal holes and untagged root nodes render exactly as before). The
+  // server-shipped map covers hydrated nodes; nodes made or ingested LIVE this
+  // session fall back to their own origin.author so a card carries its maker's
+  // name the moment it exists, not after the next reload.
 export function authorChipFor(node){
     if (!node) return null;
-    var slug = authorsByNode[node.id];
+    var slug = authorsByNode[node.id]
+      || (node.origin && typeof node.origin.author === "string" ? node.origin.author : "");
     if (!slug) return null;
     var color = authorColors[slug];
-    return color ? { slug: slug, color: color } : null;
+    if (!color){
+      // A newcomer the boot hydration didn't know: assign a stable color without
+      // reshuffling anyone already on the canvas, and remember it for the session.
+      color = assignAuthorColors(Object.keys(authorColors).concat(slug))[slug];
+      authorColors[slug] = color;
+    }
+    return { slug: slug, color: color };
   }
 export function lensLabel(key){ return sharedLensLabel(key); }
 export function lensBadgeHtml(key){ return '<span class="lens-badge">' + esc(lensLabel(key)) + '</span>'; }
 
   // ---------- loading placeholder (pending answers) ----------
-  var LOADING_BUNNY_HTML = '<span class="loading-bunny" aria-hidden="true">' +
-    '<svg width="22" height="17" viewBox="0 0 44 34" fill="currentColor" focusable="false" aria-hidden="true">' +
-    '<circle cx="8.2" cy="18.2" r="3.6"/>' +
-    '<path d="M16.8 27.4c-6.4 0-11.1-3.6-11.1-8.4 0-5.1 4.8-8.7 11.4-8.7 6.7 0 11.9 3.9 11.9 8.9 0 4.9-4.9 8.2-12.2 8.2z"/>' +
-    '<path d="M29.5 21.2c-4 0-7.1-2.7-7.1-6.2 0-3.6 3.2-6.3 7.2-6.3 4.1 0 7.3 2.7 7.3 6.2 0 3.7-3.2 6.3-7.4 6.3z"/>' +
-    '<path d="M27.4 10.4c-.9.3-1.9-.2-2.2-1.1L22.7 2.7c-.4-1 .1-2 1.1-2.4 1-.3 1.9.2 2.3 1.1l2.8 6.7c.4 1-.3 1.9-1.5 2.3z"/>' +
-    '<path d="M31.9 10.2c-1 .1-1.8-.5-2-1.5l-1-7.1c-.1-1 .6-1.9 1.6-2 1-.1 1.8.6 2 1.6l1.1 7.1c.1 1-.6 1.8-1.7 1.9z"/>' +
-    '<path d="M11.5 28.2h7.6c.5 0 .8.4.6.9-.1.3-.4.6-.8.6l-8.3 1.4c-.8.1-1.5-.5-1.5-1.3 0-.9.8-1.6 2.4-1.6z"/>' +
+  // The Clew mark, animated: ◉ a wound ball of thread (winding arcs so the spin
+  // reads) with ⌇ the escaping thread trailing off in brand red. It spins while
+  // the answer is being wound in — while it's Clewing.
+  var LOADING_CLEW_HTML = '<span class="loading-clew" aria-hidden="true">' +
+    '<svg width="21" height="19" viewBox="0 0 44 38" fill="none" focusable="false" aria-hidden="true">' +
+    '<g class="clew-ball">' +
+    '<circle cx="17" cy="19" r="12.5" stroke="currentColor" stroke-width="2.4"/>' +
+    '<path d="M6.6 14c6.6-5 14.2-5 20.8 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>' +
+    '<path d="M5.4 21.8c7.7-3.9 15.5-3.9 23.2 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>' +
+    '<path d="M9.4 28.9c5.6-2.6 9.6-2.6 15.2 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>' +
+    '</g>' +
+    '<path class="clew-thread" d="M29.5 19c3.4 0 3.2-3.4 6-3.4s2.6 3.4 5.6 3.4" stroke-width="1.9" stroke-linecap="round"/>' +
     '</svg>' +
     '</span>';
 export function buildLoading(node){
@@ -413,8 +431,8 @@ export function buildLoading(node){
     wrap.className = "loading";
     var st = document.createElement("div");
     st.className = "loading-status";
-    st.innerHTML = LOADING_BUNNY_HTML +
-      '<span class="shimmer-text ll-live">Thinking</span>' +
+    st.innerHTML = LOADING_CLEW_HTML +
+      '<span class="shimmer-text ll-live">Clewing</span>' +
       '<span class="ll-stalled">Saved — waiting for the agent</span>' +
       '<span class="ll-closed">Saved — answered when you reopen this hole</span>' +
       '<span class="ll-frozen">Unanswered when this snapshot was exported</span>' +
