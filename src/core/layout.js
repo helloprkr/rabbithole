@@ -1,7 +1,9 @@
 import { BRANCH_FOLLOWUP, BRANCH_SELECTION, branchTypeOfNode } from "./model.js";
 
-export const DEFAULT_ROOT = Object.freeze({ w: 480, h: 580 });
-export const DEFAULT_CHILD = Object.freeze({ w: 420, h: 460 });
+// Reading-width defaults: ~70ch of body text per card, sized for group reads
+// where each card is a document section, not a chat bubble.
+export const DEFAULT_ROOT = Object.freeze({ w: 960, h: 680 });
+export const DEFAULT_CHILD = Object.freeze({ w: 840, h: 600 });
 export const TREE_PARENT_GAP = 70;
 export const TREE_STACK_GAP = 30;
 
