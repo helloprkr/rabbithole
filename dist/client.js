@@ -1711,8 +1711,8 @@ var RabbitholeClient = (() => {
   }
 
   // src/core/layout.js
-  var DEFAULT_ROOT = Object.freeze({ w: 480, h: 580 });
-  var DEFAULT_CHILD = Object.freeze({ w: 420, h: 460 });
+  var DEFAULT_ROOT = Object.freeze({ w: 960, h: 680 });
+  var DEFAULT_CHILD = Object.freeze({ w: 840, h: 600 });
   var TREE_PARENT_GAP = 70;
   var TREE_STACK_GAP = 30;
   function nodeOrder(a, b) {

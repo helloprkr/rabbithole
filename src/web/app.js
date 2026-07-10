@@ -8,14 +8,29 @@ import { openUrlToStoredHole } from "./ingest/url.js";
 
 const SETTINGS_KEY = "rh-web-settings";
 const KEY_KEY = "rh-web-api-key";
-const AGENT_COMMAND = "claude mcp add rabbithole -- npx -y github:shlokkhemani/rabbithole";
+const AGENT_COMMAND = "claude mcp add rabbithole -- npx -y github:helloprkr/rabbithole";
 const OPENROUTER_WALKTHROUGH_URL = "https://openrouter.ai/docs/quickstart";
+
+// Warren patch 5 — team workspace mode. When the app is staged on a team hub,
+// `workspace.json` sits beside index.html (written by `warren team workspace
+// stage`). Its presence turns on: a team landing card, a sticky author handle
+// (stamped as origin.author on every node the member makes), auto-open of the
+// published team hole, and a background sync that POSTs novel nodes to the
+// hub's /api/branches inbox — the hourly tick merges them attributed. Absent
+// (personal/local use), everything below is dead code and the app is unchanged.
+const TEAM_AUTHOR_KEY = "rh-team-author";
+const TEAM_AUTHOR_RE = /^[a-z0-9_-]{1,32}$/;
+const TEAM_SYNC_EVERY_MS = 20000;
 
 const store = new IdbStore();
 let memoryKey = "";
 let currentHost = null;
 let currentHoleId = null;
 let uiStarted = false;
+let teamConfig = null;
+let teamHoleLocalId = "";
+let teamSyncTimer = null;
+let teamSyncBusy = false;
 
 applyInitialWebTheme();
 
@@ -25,6 +40,7 @@ boot().catch((err) => {
 
 async function boot() {
   document.body.classList.add("web-app");
+  teamConfig = await loadTeamConfig();
   const holeId = holeIdFromHash();
   if (holeId) {
     const hole = await store.loadHole(holeId);
@@ -66,6 +82,8 @@ async function renderHome() {
       </div>
       <div id="hole-list" class="hole-list"></div>
     </section>
+
+    ${teamConfig ? teamCardHtml() : ""}
 
     <section class="new-hole" aria-labelledby="composer-heading">
       <div class="new-hole-main">
@@ -138,8 +156,269 @@ async function renderHome() {
   document.querySelectorAll("[data-copy-agent]").forEach((button) => {
     button.addEventListener("click", () => copyText(AGENT_COMMAND, "Command copied."));
   });
+  if (teamConfig) initTeamCard();
   initDrop();
   await renderHoleList();
+}
+
+// ---------------------------------------------------------------------------
+// Team workspace mode (Warren patch 5)
+// ---------------------------------------------------------------------------
+
+async function loadTeamConfig() {
+  try {
+    const res = await fetch("workspace.json", { cache: "no-store" });
+    if (!res.ok) return null;
+    const cfg = await res.json();
+    if (!cfg || typeof cfg !== "object" || typeof cfg.project !== "string" || !cfg.project) return null;
+    return {
+      project: cfg.project,
+      hole: typeof cfg.hole === "string" && cfg.hole ? cfg.hole : "",
+      branchEndpoint: typeof cfg.branchEndpoint === "string" && cfg.branchEndpoint ? cfg.branchEndpoint : "/api/branches",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function teamAuthor() {
+  try {
+    const a = localStorage.getItem(TEAM_AUTHOR_KEY) || "";
+    return TEAM_AUTHOR_RE.test(a) ? a : "";
+  } catch {
+    return "";
+  }
+}
+
+function slugifyAuthor(raw) {
+  return String(raw || "").trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9_-]/g, "").slice(0, 32);
+}
+
+function teamProjectTitle() {
+  return String(teamConfig?.project || "")
+    .split("-")
+    .map((word) => (word ? word[0].toUpperCase() + word.slice(1) : ""))
+    .join(" ");
+}
+
+function teamCardHtml() {
+  const author = teamAuthor();
+  return `<section class="new-hole team-card" aria-labelledby="team-heading">
+    <div class="new-hole-main">
+      <div class="composer-head">
+        <div>
+          <h2 id="team-heading">${escapeHtml(teamProjectTitle())} — team warren</h2>
+          <p>Everything you make here carries your name and flows back to the group overnight.</p>
+        </div>
+      </div>
+      <div class="team-signin" id="team-signin">${teamSigninHtml(author)}</div>
+      ${teamConfig.hole ? `<div class="composer-footer">
+        <p class="drop-hint" id="team-open-hint">${author ? "" : "Pick your name first."}</p>
+        <button id="team-open" class="web-primary" type="button" ${author ? "" : "disabled"}>Open the team canvas</button>
+      </div>` : ""}
+      <div id="team-status" class="ingest-status" aria-live="polite"></div>
+      <details class="team-agent-path">
+        <summary>Prefer your own AI subscription (Claude Code, Codex)? No API key needed.</summary>
+        <div class="team-agent-steps">
+          <p>1. In a terminal, add the canvas to your agent (one time):</p>
+          <p><code>${escapeHtml(AGENT_COMMAND)}</code> <button class="copy-command" type="button" data-copy-agent>Copy</button></p>
+          <p class="team-agent-note">Codex or another MCP-capable agent? Same server: <code>codex mcp add rabbithole -- npx -y github:helloprkr/rabbithole</code></p>
+          <p>2. Then paste this into your agent (fill in the team key you signed in with):</p>
+          <p><code id="team-agent-prompt">${escapeHtml(teamAgentPrompt(author))}</code> <button class="copy-command" type="button" data-copy-agent-prompt>Copy</button></p>
+          <p class="team-agent-note">Your subscription does the answering; your work still lands back here with your name on it.</p>
+        </div>
+      </details>
+    </div>
+  </section>`;
+}
+
+function teamSigninHtml(author) {
+  if (author) {
+    return `<p class="team-signed-in">You are <strong>${escapeHtml(author)}</strong> — this name is stamped on every card you make.
+      <button id="team-author-change" class="web-secondary" type="button">Change</button></p>`;
+  }
+  return `<label class="field" for="team-author-input">
+      <span>Your name or handle (you keep it forever — changing it later splits your history)</span>
+      <input id="team-author-input" class="web-input" placeholder="e.g. jordan, orph, zy" autocomplete="off" maxlength="40">
+    </label>
+    <button id="team-author-save" class="web-primary" type="button">Sign in</button>`;
+}
+
+function teamAgentPrompt(author) {
+  const origin = location.origin;
+  const slug = teamConfig?.hole || "<team-hole>";
+  const name = author || "<your-name>";
+  return `Our team hub is ${origin} (access key: <TEAM KEY>). Authenticate (the ?k= query sets a cookie), download ${origin}/h/${slug}/hole.json to a local file, and resume that rabbithole file. I am "${name}" — set origin.author="${name}" on every node you create. When I say "sync to team", POST {v:1, hole:"${slug}", author:"${name}", nodes:[the novel nodes: id, parent_id, title, markdown, origin]} to ${origin}/api/branches with the same auth.`;
+}
+
+function initTeamCard() {
+  wireTeamSignin();
+  const openBtn = document.getElementById("team-open");
+  if (openBtn) openBtn.addEventListener("click", () => openTeamHole());
+  document.querySelectorAll("[data-copy-agent-prompt]").forEach((button) => {
+    button.addEventListener("click", () => copyText(teamAgentPrompt(teamAuthor()), "Prompt copied — fill in the team key."));
+  });
+}
+
+function wireTeamSignin() {
+  const saveBtn = document.getElementById("team-author-save");
+  const changeBtn = document.getElementById("team-author-change");
+  if (saveBtn) {
+    const input = document.getElementById("team-author-input");
+    const save = () => {
+      const slug = slugifyAuthor(input.value);
+      if (!TEAM_AUTHOR_RE.test(slug)) {
+        setTeamStatus("Names are 1–32 lowercase letters, numbers, dashes or underscores.", "error");
+        return;
+      }
+      try { localStorage.setItem(TEAM_AUTHOR_KEY, slug); } catch {}
+      setTeamStatus("");
+      refreshTeamCard();
+      showToast({ message: `Signed in as ${slug}. Stick with this name.` });
+    };
+    saveBtn.addEventListener("click", save);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); save(); }
+    });
+  }
+  if (changeBtn) {
+    changeBtn.addEventListener("click", () => {
+      if (!confirm("Changing your name splits your attribution history. Your old cards keep the old name. Continue?")) return;
+      try { localStorage.removeItem(TEAM_AUTHOR_KEY); } catch {}
+      refreshTeamCard();
+    });
+  }
+}
+
+function refreshTeamCard() {
+  const signin = document.getElementById("team-signin");
+  if (signin) signin.innerHTML = teamSigninHtml(teamAuthor());
+  const author = teamAuthor();
+  const openBtn = document.getElementById("team-open");
+  const hint = document.getElementById("team-open-hint");
+  if (openBtn) openBtn.disabled = !author;
+  if (hint) hint.textContent = author ? "" : "Pick your name first.";
+  const prompt = document.getElementById("team-agent-prompt");
+  if (prompt) prompt.textContent = teamAgentPrompt(author);
+  wireTeamSignin();
+}
+
+function setTeamStatus(message, tone = "") {
+  const el = document.getElementById("team-status");
+  if (!el) return;
+  el.textContent = message || "";
+  el.className = `ingest-status${message ? " visible" : ""}${tone ? ` ${tone}` : ""}`;
+}
+
+function teamHoleStorageKey() {
+  return `rh-team-hole:${teamConfig?.hole || ""}`;
+}
+
+function teamSyncedStorageKey(holeId) {
+  return `rh-team-synced:${holeId}`;
+}
+
+async function openTeamHole() {
+  if (!teamConfig?.hole) return;
+  let localId = "";
+  try { localId = localStorage.getItem(teamHoleStorageKey()) || ""; } catch {}
+  if (localId) {
+    const existing = await store.loadHole(localId);
+    if (existing) { await startHole(existing); return; }
+  }
+  setTeamStatus("Fetching the team hole…", "busy");
+  let hole;
+  try {
+    const res = await fetch(`../h/${encodeURIComponent(teamConfig.hole)}/hole.json`, { cache: "no-store" });
+    if (!res.ok) {
+      setTeamStatus(`Couldn't fetch the team hole (${res.status}). Are you signed in with the team key?`, "error");
+      return;
+    }
+    hole = await res.json();
+  } catch (err) {
+    setTeamStatus(`Couldn't fetch the team hole. ${err?.message || String(err)}`, "error");
+    return;
+  }
+  if (!hole || typeof hole !== "object" || !hole.hole_id || !Array.isArray(hole.nodes)) {
+    setTeamStatus("The team hole file looks malformed — tell the toolkeeper.", "error");
+    return;
+  }
+  await store.saveHole(hole);
+  try {
+    localStorage.setItem(teamHoleStorageKey(), hole.hole_id);
+    // Everything fetched from the hub is already the team's — only nodes made
+    // HERE after this baseline are novel and get synced up.
+    localStorage.setItem(teamSyncedStorageKey(hole.hole_id), JSON.stringify(hole.nodes.map((n) => n.id)));
+  } catch {}
+  setTeamStatus("");
+  await startHole(await store.loadHole(hole.hole_id) || hole);
+}
+
+function isTeamHole(holeId) {
+  if (!teamConfig?.hole || !holeId) return false;
+  try { return localStorage.getItem(teamHoleStorageKey()) === holeId; } catch { return false; }
+}
+
+function startTeamSync() {
+  if (teamSyncTimer) clearInterval(teamSyncTimer);
+  teamSyncTimer = setInterval(() => { teamSyncNow(true).catch(() => {}); }, TEAM_SYNC_EVERY_MS);
+}
+
+async function teamSyncNow(silent = false) {
+  if (teamSyncBusy) return;
+  if (!teamConfig || !currentHoleId || currentHoleId !== teamHoleLocalId) return;
+  const author = teamAuthor();
+  if (!author) return;
+  teamSyncBusy = true;
+  try {
+    const hole = await store.loadHole(currentHoleId);
+    if (!hole || !Array.isArray(hole.nodes)) return;
+    let synced = [];
+    try { synced = JSON.parse(localStorage.getItem(teamSyncedStorageKey(currentHoleId)) || "[]"); } catch {}
+    const syncedSet = new Set(Array.isArray(synced) ? synced : []);
+    const novel = hole.nodes.filter((n) => n && typeof n.id === "string" && n.id && !syncedSet.has(n.id));
+    if (!novel.length) {
+      if (!silent) showToast({ message: "Everything here is already synced to the team." });
+      return;
+    }
+    const payload = {
+      v: 1,
+      hole: teamConfig.hole,
+      author,
+      nodes: novel.slice(0, 500).map((n) => ({
+        id: n.id,
+        parent_id: n.parent_id ?? null,
+        title: typeof n.title === "string" ? n.title : "",
+        markdown: typeof n.markdown === "string" ? n.markdown : "",
+        origin: { ...(n.origin && typeof n.origin === "object" ? n.origin : {}), author },
+        ...(n.position && Number.isFinite(n.position.x) && Number.isFinite(n.position.y)
+          ? { position: { x: n.position.x, y: n.position.y } }
+          : {}),
+        ...(typeof n.created_at === "string" ? { created_at: n.created_at } : {}),
+      })),
+    };
+    let res;
+    try {
+      res = await fetch(teamConfig.branchEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        keepalive: true,
+      });
+    } catch {
+      if (!silent) showToast({ message: "Team sync failed — network. Your work is safe locally; it retries." });
+      return;
+    }
+    if (res.status === 202) {
+      for (const n of novel) syncedSet.add(n.id);
+      try { localStorage.setItem(teamSyncedStorageKey(currentHoleId), JSON.stringify([...syncedSet])); } catch {}
+      if (!silent) showToast({ message: `Sent ${novel.length} node${novel.length === 1 ? "" : "s"} to the team.` });
+    } else if (!silent) {
+      showToast({ message: `Team sync failed (${res.status}). Your work is safe locally; it retries.` });
+    }
+  } finally {
+    teamSyncBusy = false;
+  }
 }
 
 async function renderHoleList() {
@@ -321,9 +600,13 @@ async function startHole(hole, { replace = false } = {}) {
   if (replace) history.replaceState(null, "", `#hole=${encodeURIComponent(hole.hole_id)}`);
   else history.pushState(null, "", `#hole=${encodeURIComponent(hole.hole_id)}`);
 
+  const teamMode = isTeamHole(hole.hole_id);
+  teamHoleLocalId = teamMode ? hole.hole_id : "";
   document.body.innerHTML = `<div class="web-canvas-bar">
     <button id="web-home" class="web-secondary" type="button">Home</button>
     <button id="web-settings" class="web-secondary" type="button">Settings</button>
+    ${teamMode ? `<span class="team-badge">team · ${escapeHtml(teamAuthor())}</span>
+    <button id="team-sync" class="web-secondary" type="button">Send to team</button>` : ""}
   </div>
   <div id="web-settings-modal" class="web-settings-modal" hidden><div class="web-settings-dialog"><button id="web-settings-close" class="web-close" type="button">Close</button><div id="settings-panel" class="settings-panel expanded"></div></div></div>
   <div id="canvas-root">${CANVAS_SHELL}</div>
@@ -357,15 +640,25 @@ async function startHole(hole, { replace = false } = {}) {
 
   document.getElementById("web-home").addEventListener("click", async () => {
     await currentHost?.flushSave();
+    if (teamMode) await teamSyncNow(true).catch(() => {});
     history.pushState(null, "", location.pathname);
     location.reload();
   });
+
+  if (teamMode) {
+    document.getElementById("team-sync").addEventListener("click", async () => {
+      await currentHost?.flushSave();
+      await teamSyncNow(false);
+    });
+    startTeamSync();
+  }
 
   window.__rhWebApp = {
     store,
     exportSnapshotForTest: async () => buildSnapshotHtml(await buildSnapshotHydration()),
     currentHoleId: () => currentHoleId,
     readRawHole: (id = currentHoleId) => store.readRawHoleForTest(id),
+    teamSyncNow: (silent = false) => teamSyncNow(silent),
   };
 }
 

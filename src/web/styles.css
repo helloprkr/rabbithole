@@ -853,3 +853,63 @@ button {
     place-items: start center;
   }
 }
+
+/* Team workspace mode (Warren patch 5) */
+.team-card {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.team-card .team-signin {
+  display: grid;
+  gap: 10px;
+  margin: 6px 0 10px;
+}
+
+.team-signed-in {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+
+.team-agent-path {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.team-agent-path summary {
+  cursor: pointer;
+  color: color-mix(in srgb, var(--fg) 72%, var(--bg));
+}
+
+.team-agent-steps {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.team-agent-steps code {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--node-bg) 85%, var(--bg));
+}
+
+.team-agent-note {
+  font-size: 0.85em;
+  color: color-mix(in srgb, var(--fg) 60%, var(--bg));
+}
+
+.team-badge {
+  align-self: center;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--node-bg));
+  font-size: 12px;
+  white-space: nowrap;
+}
