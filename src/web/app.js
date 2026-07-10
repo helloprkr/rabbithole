@@ -8,7 +8,9 @@ import { openUrlToStoredHole } from "./ingest/url.js";
 
 const SETTINGS_KEY = "rh-web-settings";
 const KEY_KEY = "rh-web-api-key";
-const AGENT_COMMAND = "claude mcp add rabbithole -- npx -y github:helloprkr/rabbithole";
+// The branch ref matters: main tracks upstream; the Warren patches (config
+// lenses, page-size cards, team palette) live on warren-patches-v2.
+const AGENT_COMMAND = "claude mcp add rabbithole -- npx -y github:helloprkr/rabbithole#warren-patches-v2";
 const OPENROUTER_WALKTHROUGH_URL = "https://openrouter.ai/docs/quickstart";
 
 // Warren patch 5 — team workspace mode. When the app is staged on a team hub,
@@ -222,7 +224,7 @@ function teamCardHtml() {
         <div class="team-agent-steps">
           <p>1. In a terminal, add the canvas to your agent (one time):</p>
           <p><code>${escapeHtml(AGENT_COMMAND)}</code> <button class="copy-command" type="button" data-copy-agent>Copy</button></p>
-          <p class="team-agent-note">Codex or another MCP-capable agent? Same server: <code>codex mcp add rabbithole -- npx -y github:helloprkr/rabbithole</code></p>
+          <p class="team-agent-note">Codex or another MCP-capable agent? Same server: <code>codex mcp add rabbithole -- npx -y github:helloprkr/rabbithole#warren-patches-v2</code></p>
           <p>2. Then paste this into your agent (fill in the team key you signed in with):</p>
           <p><code id="team-agent-prompt">${escapeHtml(teamAgentPrompt(author))}</code> <button class="copy-command" type="button" data-copy-agent-prompt>Copy</button></p>
           <p class="team-agent-note">Your subscription does the answering; your work still lands back here with your name on it.</p>

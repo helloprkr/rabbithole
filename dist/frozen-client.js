@@ -1711,10 +1711,10 @@ var RabbitholeFrozenClient = (() => {
   }
 
   // src/core/layout.js
-  var DEFAULT_ROOT = Object.freeze({ w: 960, h: 680 });
-  var DEFAULT_CHILD = Object.freeze({ w: 840, h: 600 });
-  var TREE_PARENT_GAP = 70;
-  var TREE_STACK_GAP = 30;
+  var DEFAULT_ROOT = Object.freeze({ w: 880, h: 1120 });
+  var DEFAULT_CHILD = Object.freeze({ w: 820, h: 1060 });
+  var TREE_PARENT_GAP = 90;
+  var TREE_STACK_GAP = 60;
   function nodeOrder(a, b) {
     return ((a == null ? void 0 : a._order) || 0) - ((b == null ? void 0 : b._order) || 0) || String((a == null ? void 0 : a.id) || "").localeCompare(String((b == null ? void 0 : b.id) || ""));
   }
