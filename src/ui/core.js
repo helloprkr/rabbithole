@@ -14,9 +14,12 @@ import {
 } from "../core/model.js";
 import {
   DEFAULT_CHILD,
+  DEFAULT_DEFINITION,
+  DEFAULT_NOTE,
   DEFAULT_ROOT,
   TREE_PARENT_GAP,
   TREE_STACK_GAP,
+  defaultNodeSize as sharedDefaultNodeSize,
   boundsOverlap as sharedBoundsOverlap,
   nodeBounds as sharedNodeBounds,
   nodeOrder as sharedNodeOrder,
@@ -25,7 +28,8 @@ import {
 } from "../core/layout.js";
 import { assignAuthorColors } from "../core/team-palette.js";
 
-export { BRANCH_DEFINITION, BRANCH_DOCUMENT, BRANCH_FOLLOWUP, BRANCH_NOTE, BRANCH_SELECTION, DEFAULT_CHILD, DEFAULT_ROOT, LENSES, LENS_ORDER, TREE_PARENT_GAP, TREE_STACK_GAP, isLocalOnlyNode };
+export { BRANCH_DEFINITION, BRANCH_DOCUMENT, BRANCH_FOLLOWUP, BRANCH_NOTE, BRANCH_SELECTION, DEFAULT_CHILD, DEFAULT_DEFINITION, DEFAULT_NOTE, DEFAULT_ROOT, LENSES, LENS_ORDER, TREE_PARENT_GAP, TREE_STACK_GAP, isLocalOnlyNode };
+export function defaultNodeSize(node, isRoot){ return sharedDefaultNodeSize(node, isRoot); }
 
 export var SVGNS = "http://www.w3.org/2000/svg";
 export var MIN_SCALE = 0.15, MAX_SCALE = 2.5;

@@ -345,6 +345,90 @@ function teamSyncedStorageKey(holeId) {
   return `rh-team-synced:${holeId}`;
 }
 
+// Tombstones — the reason a delete STICKS. The merged team hole is add-only
+// from the client's point of view: without a tombstone, the periodic pull
+// re-materializes every deleted card forever. Locally: ids in this set are
+// never ingested again. Team-side: deleting YOUR OWN card posts a tombstone
+// record; the merge drops the node when the tombstone is its newest record
+// (an undo re-push is newer, so it cleanly resurrects).
+function teamTombstoneStorageKey(holeId) {
+  return `rh-team-tombstones:${holeId}`;
+}
+
+function readTombstones(holeId) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(teamTombstoneStorageKey(holeId)) || "[]");
+    return new Set(Array.isArray(raw) ? raw : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeTombstones(holeId, set) {
+  try { localStorage.setItem(teamTombstoneStorageKey(holeId), JSON.stringify([...set])); } catch {}
+}
+
+function addTombstones(holeId, ids) {
+  const set = readTombstones(holeId);
+  for (const id of ids) set.add(id);
+  writeTombstones(holeId, set);
+}
+
+function removeTombstones(holeId, ids) {
+  const set = readTombstones(holeId);
+  for (const id of ids) set.delete(id);
+  writeTombstones(holeId, set);
+}
+
+// A card was deleted here. Locally every deleted id is tombstoned (the pull
+// must not bring any of them back); team-wide, only YOUR OWN cards get a
+// tombstone record — deleting a teammate's card only tidies your view.
+function handleLocalDelete({ nodes: deleted = [] } = {}) {
+  if (!teamConfig || !currentHoleId || currentHoleId !== teamHoleLocalId) return;
+  const ids = deleted.map((n) => n?.id).filter(Boolean);
+  if (!ids.length) return;
+  addTombstones(currentHoleId, ids);
+  const me = teamAuthor();
+  const mine = deleted.filter((n) => n?.id && (n.origin?.author || "") === me);
+  if (!me || !mine.length) return;
+  const payload = {
+    v: 1,
+    hole: teamConfig.hole,
+    author: me,
+    nodes: mine.map((n) => ({
+      id: n.id, parent_id: null, title: "", markdown: "",
+      origin: { tombstone: true, author: me },
+    })),
+  };
+  fetch(teamConfig.branchEndpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    keepalive: true,
+  }).catch(() => {});
+}
+
+// Undo: clear the local tombstones, and un-mark YOUR restored cards as synced
+// so the next sync re-pushes them — that content record is newer than the
+// tombstone, so the merge keeps the card and teammates get it back.
+function handleLocalRestore({ nodes: restored = [] } = {}) {
+  if (teamConfig && currentHoleId && currentHoleId === teamHoleLocalId) {
+    const ids = restored.map((n) => n?.id).filter(Boolean);
+    removeTombstones(currentHoleId, ids);
+    const me = teamAuthor();
+    const mineIds = restored.filter((n) => n?.id && (n.origin?.author || "") === me).map((n) => n.id);
+    if (mineIds.length) {
+      try {
+        const key = teamSyncedStorageKey(currentHoleId);
+        const synced = new Set(JSON.parse(localStorage.getItem(key) || "[]"));
+        for (const id of mineIds) synced.delete(id);
+        localStorage.setItem(key, JSON.stringify([...synced]));
+      } catch {}
+    }
+  }
+  location.reload();
+}
+
 async function openTeamHole() {
   if (!teamConfig?.hole) return;
   let localId = "";
@@ -411,11 +495,28 @@ function startTeamSync() {
 // up as if they were local work. Returns how many nodes were actually new.
 function ingestTeamNodes(nodes) {
   if (!currentHost || !currentHoleId || currentHoleId !== teamHoleLocalId) return 0;
-  // Local-only cards (definitions): never materialize someone ELSE'S on this
-  // canvas. Our own pending stub is a known id, so Clew's answer for it still
-  // lands via the update-in-place path.
-  const incoming = (Array.isArray(nodes) ? nodes : []).filter((n) => {
+  const list = Array.isArray(nodes) ? nodes : [];
+  // Tombstone records first: a card's author deleted it — mirror the removal
+  // (only if OUR copy carries the same author; nobody tombstones another's card).
+  const tombIds = list
+    .filter((n) => n && typeof n === "object" && n.origin?.tombstone === true && typeof n.id === "string")
+    .filter((n) => {
+      const local = currentHost.state.nodes.get(n.id);
+      return !!local && (local.origin?.author || "") === (n.origin?.author || "");
+    })
+    .map((n) => n.id);
+  if (tombIds.length) {
+    currentHost.removeRemoteDeleted(tombIds);
+    addTombstones(currentHoleId, tombIds);
+  }
+  const tombs = readTombstones(currentHoleId);
+  const incoming = list.filter((n) => {
     if (!n || typeof n !== "object") return false;
+    if (n.origin?.tombstone === true) return false; // handled above — never a card
+    if (n.id && tombs.has(n.id)) return false; // deleted here — the pull must not resurrect it
+    // Local-only cards (definitions): never materialize someone ELSE'S on this
+    // canvas. Our own pending stub is a known id, so Clew's answer for it still
+    // lands via the update-in-place path.
     if (n.origin?.local !== true) return true;
     return !!(n.id && currentHost.state.nodes.has(n.id));
   });
@@ -782,7 +883,8 @@ async function startHole(hole, { replace = false } = {}) {
       history.pushState(null, "", location.pathname);
       location.reload();
     },
-    onRestore: () => location.reload(),
+    onDeleted: handleLocalDelete,
+    onRestore: handleLocalRestore,
   });
   // A discarded tab reloads straight into the canvas via #hole=, skipping the
   // home view's needs-key affordance — surface the missing key immediately.

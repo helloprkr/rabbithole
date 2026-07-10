@@ -7,7 +7,7 @@ import { TitleSentinelParser, fallbackTitleForNode, normalizeProviderError } fro
 const SAVE_DEBOUNCE_MS = 400;
 
 export class DirectRabbitholeHost {
-  constructor({ store, hole, brain = null, author = "", clewBacked = false, onEvent = null, onToast = null, onDone = null, onRestore = null, onNeedsKey = null, onClewAsk = null } = {}) {
+  constructor({ store, hole, brain = null, author = "", clewBacked = false, onEvent = null, onToast = null, onDone = null, onRestore = null, onNeedsKey = null, onClewAsk = null, onDeleted = null } = {}) {
     this.store = store;
     this.brain = brain;
     // Team workspace sign-in: stamped as origin.author on every node created
@@ -22,6 +22,7 @@ export class DirectRabbitholeHost {
     this.onRestore = onRestore;
     this.onNeedsKey = onNeedsKey;
     this.onClewAsk = onClewAsk;
+    this.onDeleted = onDeleted;
     this.state = createHoleState(hole);
     this.holeId = this.state.hole_id;
     this.title = this.state.title;
@@ -156,6 +157,10 @@ export class DirectRabbitholeHost {
     await this.gcAssetsForDeletedNodes(deletedNodes);
     this.scheduleSave();
     this.emit({ type: "node_deleted", node_ids: deletedIds });
+    // Team plumbing (the /app workspace wires this): record tombstones so the
+    // delete STICKS — without them the periodic pull re-materializes anything
+    // still in the merged team hole, forever.
+    this.onDeleted?.({ nodes: deletedNodes.map((n) => ({ id: n.id, origin: n.origin ?? null })) });
 
     const title = deletedNodes[0]?.title || "Untitled";
     this.onToast?.({
@@ -166,7 +171,7 @@ export class DirectRabbitholeHost {
       timeoutMs: 10000,
       onAction: async () => {
         await this.restoreDeletedNodes(deletedNodes, deletedAssets);
-        this.onRestore?.({ parentId });
+        this.onRestore?.({ parentId, nodes: deletedNodes.map((n) => ({ id: n.id, origin: n.origin ?? null })) });
       },
     });
     return { ok: true, deleted: deletedIds };
@@ -455,6 +460,23 @@ export class DirectRabbitholeHost {
     }
     if (added.length) this.scheduleSave();
     return added;
+  }
+
+  // A teammate deleted their card (a tombstone arrived over sync): mirror the
+  // removal silently — no toast, no undo, no re-tombstone (onDeleted not fired).
+  removeRemoteDeleted(nodeIds = []) {
+    const doomed = nodeIds.filter((id) => typeof id === "string" && id && id !== this.state.root_id && this.state.nodes.has(id));
+    if (!doomed.length) return [];
+    const reduced = reduceHoleEvent(this.state, { type: "node_deleted", node_ids: doomed });
+    this.state = reduced.state;
+    for (const id of doomed) {
+      const controller = this.abortByNode.get(id);
+      if (controller) controller.abort();
+      this.abortByNode.delete(id);
+    }
+    this.scheduleSave();
+    this.emit({ type: "node_deleted", node_ids: doomed });
+    return doomed;
   }
 
   emit(event) {

@@ -4,6 +4,8 @@ import {
   BRANCH_NOTE,
   BRANCH_SELECTION,
   DEFAULT_CHILD,
+  DEFAULT_DEFINITION,
+  DEFAULT_NOTE,
   LENSES,
   ask,
   askGo,
@@ -296,7 +298,7 @@ export function hideAsk(){
   // ---------- definition cards (⌘+select) ----------
   // A per-member dictionary lookup: smaller card, distinct dress, and LOCAL —
   // origin.local keeps it off the team canvas (sync/merge/ingest all filter it).
-  var DEFINITION_SIZE = { w: 420, h: 300 };
+  var DEFINITION_SIZE = DEFAULT_DEFINITION;
   function definitionQuestion(term){
     return 'Define "' + term + '": the sense used in this passage first, then the general meaning; ' +
       'part of speech; a one-line origin only if it illuminates. A compact dictionary card. ' +
@@ -353,7 +355,7 @@ export function hideAsk(){
   }
 
   // ---------- note cards (human words, no AI) ----------
-  var NOTE_SIZE = { w: 560, h: 420 };
+  var NOTE_SIZE = DEFAULT_NOTE;
   function submitNote(source){
     if (!pendingAsk || closed) return;
     if (typeof askHooks.note !== "function") return;

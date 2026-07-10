@@ -1,8 +1,7 @@
 import {
-  DEFAULT_CHILD,
-  DEFAULT_ROOT,
   MAX_SCALE,
   MIN_SCALE,
+  defaultNodeSize,
   armSince,
   currentNodeId,
   frozen,
@@ -26,7 +25,7 @@ export function hydrateInitialState({ connectSse = null, post = null, refreshSta
   if (frozen) document.body.classList.add("frozen");
   (hydration.nodes || []).forEach(function(raw){
     var isRoot = raw.id === rootId;
-    var size = raw.size || (isRoot ? DEFAULT_ROOT : DEFAULT_CHILD);
+    var size = raw.size || defaultNodeSize(raw, isRoot);
     var node = nodes[raw.id] = {
       id: raw.id, parent_id: raw.parent_id, title: raw.title,
       html: "", md: raw.markdown || "",

@@ -1717,6 +1717,15 @@ var RabbitholeFrozenClient = (() => {
   // src/core/layout.js
   var DEFAULT_ROOT = Object.freeze({ w: 880, h: 1120 });
   var DEFAULT_CHILD = Object.freeze({ w: 820, h: 1060 });
+  var DEFAULT_NOTE = Object.freeze({ w: 560, h: 420 });
+  var DEFAULT_DEFINITION = Object.freeze({ w: 420, h: 300 });
+  function defaultNodeSize(node, isRoot = false) {
+    if (isRoot) return DEFAULT_ROOT;
+    const type = branchTypeOfNode(node);
+    if (type === BRANCH_NOTE) return DEFAULT_NOTE;
+    if (type === BRANCH_DEFINITION) return DEFAULT_DEFINITION;
+    return DEFAULT_CHILD;
+  }
   var TREE_PARENT_GAP = 90;
   var TREE_STACK_GAP = 60;
   function nodeOrder(a, b) {
@@ -1851,6 +1860,9 @@ var RabbitholeFrozenClient = (() => {
   }
 
   // src/ui/core.js
+  function defaultNodeSize2(node, isRoot) {
+    return defaultNodeSize(node, isRoot);
+  }
   var SVGNS = "http://www.w3.org/2000/svg";
   var MIN_SCALE = 0.15;
   var MAX_SCALE = 2.5;
@@ -30464,7 +30476,7 @@ ${text2}</tr>
     revealNode(node, source2);
     refreshAmbient();
   }
-  var DEFINITION_SIZE = { w: 420, h: 300 };
+  var DEFINITION_SIZE = DEFAULT_DEFINITION;
   function definitionQuestion(term) {
     return 'Define "' + term + '": the sense used in this passage first, then the general meaning; part of speech; a one-line origin only if it illuminates. A compact dictionary card. Start directly with the entry \u2014 never restate this request, and no meta-commentary about what context you did or did not have.';
   }
@@ -30553,7 +30565,7 @@ ${text2}</tr>
     revealNode(node, source2);
     refreshAmbient();
   }
-  var NOTE_SIZE = { w: 560, h: 420 };
+  var NOTE_SIZE = DEFAULT_NOTE;
   function submitNote(source2) {
     if (!pendingAsk || closed) return;
     if (typeof askHooks.note !== "function") return;
@@ -31846,7 +31858,7 @@ ${text2}</tr>
     if (frozen) document.body.classList.add("frozen");
     (hydration.nodes || []).forEach(function(raw) {
       var isRoot = raw.id === rootId;
-      var size = raw.size || (isRoot ? DEFAULT_ROOT : DEFAULT_CHILD);
+      var size = raw.size || defaultNodeSize2(raw, isRoot);
       var node = nodes[raw.id] = {
         id: raw.id,
         parent_id: raw.parent_id,

@@ -1,10 +1,24 @@
-import { BRANCH_FOLLOWUP, BRANCH_SELECTION, branchTypeOfNode } from "./model.js";
+import { BRANCH_DEFINITION, BRANCH_FOLLOWUP, BRANCH_NOTE, BRANCH_SELECTION, branchTypeOfNode } from "./model.js";
 
 // Page-size defaults (≈US Letter at 96dpi): most source documents are pages,
 // so cards open as pages — not chat bubbles. Gaps sized so page-tall siblings
 // read as a spine with air between them, not a shingled stack.
 export const DEFAULT_ROOT = Object.freeze({ w: 880, h: 1120 });
 export const DEFAULT_CHILD = Object.freeze({ w: 820, h: 1060 });
+// Notes and definitions are margin voices, not pages — sized like what they are.
+export const DEFAULT_NOTE = Object.freeze({ w: 560, h: 420 });
+export const DEFAULT_DEFINITION = Object.freeze({ w: 420, h: 300 });
+
+// The size a node gets when its record carries none, keyed by what the node IS
+// (origin.branch_type) — a size-less note or definition arriving from the team
+// must never render as a full document page.
+export function defaultNodeSize(node, isRoot = false) {
+  if (isRoot) return DEFAULT_ROOT;
+  const type = branchTypeOfNode(node);
+  if (type === BRANCH_NOTE) return DEFAULT_NOTE;
+  if (type === BRANCH_DEFINITION) return DEFAULT_DEFINITION;
+  return DEFAULT_CHILD;
+}
 export const TREE_PARENT_GAP = 90;
 export const TREE_STACK_GAP = 60;
 

@@ -1,6 +1,6 @@
 import {
-  DEFAULT_CHILD,
   agentAttached,
+  defaultNodeSize,
   agentDown,
   agentReason,
   bannerEl,
@@ -217,11 +217,12 @@ export function handleServer(msg){
         // that was optimistically rolled back after a lost ack). Recreate it from
         // the broadcast so the answer is never silently dropped.
         var pos = msg.position || {};
+        var healSize = msg.size || defaultNodeSize({ origin: msg.origin }, false);
         node = nodes[msg.node_id] = {
           id: msg.node_id, parent_id: msg.parent_id || null, title: msg.title || "…",
           html: "", md: "", base_url: msg.base_url || null, base_url_source: msg.base_url_source || null,
           read: false, origin: msg.origin || null, x: pos.x || 0, y: pos.y || 0,
-          w: DEFAULT_CHILD.w, h: DEFAULT_CHILD.h, font_scale: msg.font_scale || 1,
+          w: healSize.w, h: healSize.h, font_scale: msg.font_scale || 1,
           collapsed: false, status: "pending",
           _order: nextOrder(), _startTs: Date.now()
         };
