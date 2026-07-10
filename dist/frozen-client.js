@@ -3300,6 +3300,7 @@ var RabbitholeFrozenClient = (() => {
       sq.className = "origin-quote";
       sq.textContent = "\u2726 Synthesis of this Rabbithole";
       body.appendChild(sq);
+    } else if (branchTypeOf(node) === BRANCH_DEFINITION) {
     } else if (node.origin && node.origin.selected_text) {
       var q = document.createElement("div");
       q.className = "origin-quote";
@@ -30463,9 +30464,9 @@ ${text2}</tr>
     revealNode(node, source2);
     refreshAmbient();
   }
-  var DEFINITION_SIZE = { w: 480, h: 380 };
+  var DEFINITION_SIZE = { w: 420, h: 300 };
   function definitionQuestion(term) {
-    return 'Define "' + term + '": the precise meaning as used in this passage first, then the general definition, part of speech, and a one-line etymology or origin if it illuminates. Compact \u2014 a dictionary card, not an essay.';
+    return 'Define "' + term + '": the sense used in this passage first, then the general meaning; part of speech; a one-line origin only if it illuminates. A compact dictionary card. Start directly with the entry \u2014 never restate this request, and no meta-commentary about what context you did or did not have.';
   }
   function submitDefinition(source2) {
     if (!pendingAsk || closed) return;
@@ -30476,6 +30477,12 @@ ${text2}</tr>
     }
     var term = pendingAsk.selectedText;
     var question = definitionQuestion(truncate2(term, 120));
+    var context = "";
+    try {
+      var full = pendingAsk.container.textContent || "";
+      context = full.slice(Math.max(0, pendingAsk.startOff - 350), Math.min(full.length, pendingAsk.endOff + 350)).trim();
+    } catch (e) {
+    }
     var requestId = uuid(), childId = uuid();
     var pos = placeChild2(parent, BRANCH_SELECTION, DEFINITION_SIZE);
     var anchor = { offset_start: pendingAsk.startOff, offset_end: pendingAsk.endOff };
@@ -30495,7 +30502,8 @@ ${text2}</tr>
         anchor,
         branch_type: BRANCH_DEFINITION,
         local: true,
-        author: selfAuthor || void 0
+        author: selfAuthor || void 0,
+        context: context || void 0
       },
       x: pos.x,
       y: pos.y,
@@ -30536,6 +30544,7 @@ ${text2}</tr>
       anchor,
       branch_type: BRANCH_DEFINITION,
       local: true,
+      context,
       position: { x: node.x, y: node.y },
       size: { w: node.w, h: node.h }
     }).then(function(res) {

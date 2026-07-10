@@ -373,6 +373,9 @@ export function fillBody(node){
     if (node.origin && node.origin.synthesis){
       var sq = document.createElement("div"); sq.className = "origin-quote"; sq.textContent = "✦ Synthesis of this Rabbithole";
       body.appendChild(sq);
+    } else if (branchTypeOf(node) === BRANCH_DEFINITION){
+      // A dictionary card is all entry: the term is the title, the canned
+      // "define this" question is plumbing — show neither quote nor question.
     } else if (node.origin && node.origin.selected_text){
       var q = document.createElement("div"); q.className = "origin-quote"; q.textContent = "“" + node.origin.selected_text + "”";
       body.appendChild(q);

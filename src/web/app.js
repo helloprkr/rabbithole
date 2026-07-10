@@ -918,8 +918,30 @@ async function ingestAttachedFile(file, { parentId, selectedText, anchor }) {
     markdown = await file.text();
   }
   const parent = currentHost.state.nodes.get(parentId);
+  // Idempotence: a double-click, a re-fired change event, or an "it didn't
+  // seem to work" re-pick was minting a TWIN card with a fresh id — and since
+  // placement was deterministic, the twin sat pixel-perfect under the first,
+  // invisible until the merge round-tripped it back as a "random" duplicate.
+  // Same parent + same title + same content (PDF asset stamps normalized
+  // away) → reveal the existing card instead of creating another.
+  const normalizeDocMd = (md) => String(md || "").replace(/doc-[a-z0-9]{6}-/g, "doc-");
+  for (const n of currentHost.state.nodes.values()) {
+    if (n.parent_id !== parentId || n.origin?.branch_type !== "document") continue;
+    if ((n.title || "") === title && normalizeDocMd(n.markdown) === normalizeDocMd(markdown)) {
+      showToast({ message: `"${file.name}" is already attached here — the card is on the canvas.`, timeoutMs: 8000 });
+      return;
+    }
+  }
+  // Stack below whatever already hangs off this parent — a new attachment must
+  // never land exactly on top of an existing card.
+  const parentW = (parent?.size && parent.size.w) || 900;
+  let attachY = parent?.position ? parent.position.y : 120;
+  for (const n of currentHost.state.nodes.values()) {
+    if (n.parent_id !== parentId || !n.position) continue;
+    attachY = Math.max(attachY, n.position.y + ((n.size && n.size.h) || 1060) + 60);
+  }
   const pos = parent?.position
-    ? { x: parent.position.x + ((parent.size && parent.size.w) || 900) + 90, y: parent.position.y }
+    ? { x: parent.position.x + parentW + 90, y: attachY }
     : { x: 120, y: 120 };
   const node = {
     id: globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `doc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,

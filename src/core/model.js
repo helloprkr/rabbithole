@@ -185,6 +185,11 @@ export function createPendingBranchNode(payload, parent, { now = new Date().toIS
     origin: {
       selected_text: selectedText, question, lens, synthesis, anchor, branch_type: branchType,
       ...(payload.local === true ? { local: true } : {}),
+      // The passage around the selection (definitions): context for whoever
+      // answers, capped so origin stays lean.
+      ...(typeof payload.context === "string" && payload.context.trim()
+        ? { context: payload.context.trim().slice(0, 900) }
+        : {}),
     },
     position: normalizePosition(payload.position),
     size: normalizeSize(payload.size),

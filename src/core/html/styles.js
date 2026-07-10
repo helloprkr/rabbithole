@@ -327,12 +327,18 @@ body.mode-canvas #viewport { display: block; }
 .node-kind { display: inline-block; flex-shrink: 0; margin-right: 7px; font-family: var(--font-ui); font-size: 9px;
   font-weight: 650; letter-spacing: 0.07em; text-transform: uppercase; color: var(--fg-faint);
   border: 1px solid var(--border); border-radius: 4px; padding: 1.5px 5px; cursor: default; }
-/* Definitions: the member's own dictionary — smaller voice, dashed edge, quiet
-   enough to gloss over while working. Local-only: nobody else ever sees one. */
-.node--definition { border-style: dashed; background: color-mix(in srgb, var(--fg) 2%, var(--node-bg)); }
-.node--definition .node-head { border-bottom-style: dashed; }
-.node--definition .node-kind { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
-.node--definition .node-body { font-size: 0.92em; }
+/* Definitions: the member's own dictionary — a margin note, not a card that
+   competes. Muted ink, faint dashed edge, no shadow, smaller voice: easy to
+   gloss over while working. Local-only: nobody else ever sees one. */
+.node--definition { border-style: dashed; border-color: color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, var(--node-bg) 55%, var(--bg)); box-shadow: none; }
+.node--definition .node-head { background: transparent; border-bottom: 1px dashed color-mix(in srgb, var(--border) 70%, transparent); }
+.node--definition .node-title { color: var(--fg-dim); font-weight: 500; }
+.node--definition .node-kind { color: var(--fg-faint); border-color: color-mix(in srgb, var(--border) 80%, transparent); }
+.node--definition .node-body { font-size: 0.88em; }
+.node--definition .doc-content { color: var(--fg-dim); }
+.node--definition.has-author { border-left: 1px dashed color-mix(in srgb, var(--border) 70%, transparent); }
+.node--definition .node-author { display: none; } /* it's yours alone — the chip is noise */
 /* Notes: human words, no AI — a warm paper tint sets them off from answers. */
 .node--note { background: color-mix(in srgb, #E2B34A 4.5%, var(--node-bg)); }
 .node--note .node-head { background: color-mix(in srgb, #E2B34A 8%, var(--node-head)); }

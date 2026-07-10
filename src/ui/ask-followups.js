@@ -296,11 +296,12 @@ export function hideAsk(){
   // ---------- definition cards (⌘+select) ----------
   // A per-member dictionary lookup: smaller card, distinct dress, and LOCAL —
   // origin.local keeps it off the team canvas (sync/merge/ingest all filter it).
-  var DEFINITION_SIZE = { w: 480, h: 380 };
+  var DEFINITION_SIZE = { w: 420, h: 300 };
   function definitionQuestion(term){
-    return 'Define "' + term + '": the precise meaning as used in this passage first, then the general ' +
-      'definition, part of speech, and a one-line etymology or origin if it illuminates. ' +
-      'Compact — a dictionary card, not an essay.';
+    return 'Define "' + term + '": the sense used in this passage first, then the general meaning; ' +
+      'part of speech; a one-line origin only if it illuminates. A compact dictionary card. ' +
+      'Start directly with the entry — never restate this request, and no meta-commentary ' +
+      'about what context you did or did not have.';
   }
   function submitDefinition(source){
     if (!pendingAsk || closed) return;
@@ -308,6 +309,14 @@ export function hideAsk(){
     if (!parent){ hideAsk(); return; }
     var term = pendingAsk.selectedText;
     var question = definitionQuestion(truncate(term, 120));
+    // The sentence around the selection rides along so whoever answers (the
+    // member's brain or the house agent) can give the in-THIS-passage sense
+    // even before the parent document reaches the merged hole.
+    var context = "";
+    try {
+      var full = pendingAsk.container.textContent || "";
+      context = full.slice(Math.max(0, pendingAsk.startOff - 350), Math.min(full.length, pendingAsk.endOff + 350)).trim();
+    } catch(e){}
     var requestId = uuid(), childId = uuid();
     var pos = placeChild(parent, BRANCH_SELECTION, DEFINITION_SIZE);
     var anchor = { offset_start: pendingAsk.startOff, offset_end: pendingAsk.endOff };
@@ -319,7 +328,8 @@ export function hideAsk(){
       base_url_source: parent.base_url ? "inherited" : null,
       read: false,
       origin: { selected_text: term, question: question, lens: null, anchor: anchor,
-                branch_type: BRANCH_DEFINITION, local: true, author: selfAuthor || undefined },
+                branch_type: BRANCH_DEFINITION, local: true, author: selfAuthor || undefined,
+                context: context || undefined },
       x: pos.x, y: pos.y, w: DEFINITION_SIZE.w, h: DEFINITION_SIZE.h, font_scale: 1, collapsed: false,
       status: "pending", _order: nextOrder(), _startTs: Date.now()
     };
@@ -335,7 +345,7 @@ export function hideAsk(){
     hideAsk();
     askHooks.post({ type: "branch_request", request_id: requestId, node_id: childId, parent_id: parent.id,
            selected_text: term, question: question, lens: null, anchor: anchor,
-           branch_type: BRANCH_DEFINITION, local: true,
+           branch_type: BRANCH_DEFINITION, local: true, context: context,
            position: { x: node.x, y: node.y }, size: { w: node.w, h: node.h } })
       .then(function(res){ if (!res || !res.ok) rollbackBranch(node); });
     revealNode(node, source);
